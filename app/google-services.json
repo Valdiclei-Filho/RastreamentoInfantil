@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "85716304019",
+    "project_id": "rastreamento-7a507",
+    "storage_bucket": "rastreamento-7a507.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:85716304019:android:01ef58a2640dd9e9444d66",
+        "android_client_info": {
+          "package_name": "com.example.rastreamentoinfantil"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBchZbRx_wrfJdvQJ1lMLj737yQHyzNQBA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
