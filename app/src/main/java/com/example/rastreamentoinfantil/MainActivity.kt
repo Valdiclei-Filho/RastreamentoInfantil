@@ -1,3 +1,5 @@
+package com.example.rastreamentoinfantil
+
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,22 +9,11 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.ViewModelProvider
 import com.example.rastreamentoinfantil.MyFirebaseMessagingService.Companion.CHANNEL_ID
-import com.example.rastreamentoinfantil.repository.FirebaseRepository
-import com.example.rastreamentoinfantil.service.GeocodingService
-import com.example.rastreamentoinfantil.service.LocationService
-import com.example.rastreamentoinfantil.screen.Navigation
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
-import com.example.rastreamentoinfantil.viewmodel.MainViewModelFactory
 
 class MainActivity : ComponentActivity() {
     private lateinit var mainViewModel: MainViewModel

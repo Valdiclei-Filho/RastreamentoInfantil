@@ -1,6 +1,6 @@
 package com.example.rastreamentoinfantil.screen
 
-import MainActivity
+import com.example.rastreamentoinfantil.MainActivity
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.compose.NavHost

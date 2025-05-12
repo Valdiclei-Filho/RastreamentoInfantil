@@ -15,6 +15,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.RastreamentoInfantil"
         tools:targetApi="31">
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyB3KoJSAscYJb_YG70Mw3dqiBVXjMm7Z-k" />
         <service android:name=".MyFirebaseMessagingService"
             android:exported="false">
             <intent-filter>

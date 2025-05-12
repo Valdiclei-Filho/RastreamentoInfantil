@@ -81,6 +81,8 @@ dependencies {
     // Navigation Component
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
+    implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
+
     // Firebase
     implementation(platform("com.google.firebase:firebase-bom:32.7.2"))
     implementation("com.google.firebase:firebase-firestore-ktx")
@@ -92,6 +94,8 @@ dependencies {
 
     // Google Maps SDK
     implementation("com.google.android.gms:play-services-maps:18.2.0")
+    implementation("com.google.maps.android:maps-compose:4.3.1") // Para Jetpack Compose
+    implementation ("com.google.maps.android:android-maps-utils:2.3.0")
 
     implementation("androidx.compose.runtime:runtime-livedata:1.5.4")
 
