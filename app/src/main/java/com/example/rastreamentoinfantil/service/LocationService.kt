@@ -14,6 +14,9 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.Flow
 
 class LocationService(private val context: Context) {
 
@@ -22,6 +25,40 @@ class LocationService(private val context: Context) {
 
     init {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    }
+
+    private val locationRequest = LocationRequest.Builder(
+        Priority.PRIORITY_HIGH_ACCURACY, // Prioridade: alta precisão
+        100000L // Intervalo: a cada 1 segundo (ajuste conforme necessário)
+    )
+        .setWaitForAccurateLocation(false)
+        .build()
+
+    @SuppressLint("MissingPermission") // Você precisará lidar com as permissões de localização antes de chamar isto
+    fun getLocationUpdates(): Flow<Location> = callbackFlow {
+        val locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                super.onLocationResult(locationResult)
+                locationResult.locations.lastOrNull()?.let { location ->
+                    // Emite a localização mais recente para o Flow
+                    trySend(location)
+                }
+            }
+        }
+
+        fusedLocationClient.requestLocationUpdates(
+            locationRequest,
+            locationCallback,
+            null // Use o Looper da thread atual (normalmente a thread principal)
+        ).addOnFailureListener { e ->
+            // Tratar falhas na solicitação (ex: permissões negadas)
+            close(e) // Fecha o Flow com uma exceção
+        }
+
+        // Quando o coletor para de coletar, remove os callbacks de localização
+        awaitClose {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+        }
     }
 
     @SuppressLint("MissingPermission")

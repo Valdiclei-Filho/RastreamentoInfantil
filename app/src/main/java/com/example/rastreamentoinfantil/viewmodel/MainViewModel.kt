@@ -11,6 +11,8 @@ import com.example.rastreamentoinfantil.repository.FirebaseRepository
 import com.example.rastreamentoinfantil.service.GeocodingService
 import com.example.rastreamentoinfantil.helper.GeofenceHelper
 import com.example.rastreamentoinfantil.service.LocationService
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -20,8 +22,11 @@ import java.util.Locale
 class MainViewModel(
     private val firebaseRepository: FirebaseRepository,
     private val locationService: LocationService,
-    private val geocodingService: GeocodingService
+    private val geocodingService: GeocodingService,
 ) : ViewModel() {
+
+    private val _currentLocation = MutableStateFlow<android.location.Location?>(null)
+    val currentLocation: StateFlow<android.location.Location?> = _currentLocation
 
     private val _locationRecords = MutableLiveData<List<LocationRecord>>()
     val locationRecords: LiveData<List<LocationRecord>> get() = _locationRecords
@@ -39,6 +44,11 @@ class MainViewModel(
     private var currentUserId: String? = null
 
     init {
+        viewModelScope.launch {
+            locationService.getLocationUpdates().collect { location ->
+                _currentLocation.value = location
+            }
+        }
         loadUserIdAndGeofence() // Carregar usuário e geofence ao inicializar
     }
 
