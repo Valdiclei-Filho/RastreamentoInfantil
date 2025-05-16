@@ -11,6 +11,8 @@ class MainViewModelFactory(
     private val locationService: LocationService,
     private val geocodingService: GeocodingService
 ) : ViewModelProvider.Factory {
+
+    @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             return MainViewModel(firebaseRepository, locationService, geocodingService) as T

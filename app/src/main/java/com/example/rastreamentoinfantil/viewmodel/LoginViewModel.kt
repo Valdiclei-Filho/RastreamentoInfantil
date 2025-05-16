@@ -16,16 +16,25 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
     private val _error = MutableLiveData<String?>()
     val error: LiveData<String?> get() = _error
 
+    private val _user = MutableLiveData<User?>()
+    val user: MutableLiveData<User?> = _user
+
+    // Nova LiveData para sucesso no cadastro
+    private val _registerSuccess = MutableLiveData<Boolean>(false)
+    val registerSuccess: LiveData<Boolean> get() = _registerSuccess
+
     fun registerUser(user: User, password: String) {
         _isLoading.value = true
         firebaseRepository.createUser(user, password) { success, message ->
             _isLoading.value = false
             if (success) {
-                _isLoggedIn.value = true // Sucesso no cadastro
+                _registerSuccess.value = true  // Indica sucesso no cadastro
                 _error.value = null
+                _isLoggedIn.value = true // Você pode manter ou não essa linha dependendo do fluxo
             } else {
-                _error.value = message // Erro no cadastro
+                _error.value = message
                 _isLoggedIn.value = false
+                _registerSuccess.value = false
             }
         }
     }
@@ -35,10 +44,13 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
         firebaseRepository.signIn(email, password) { success, message ->
             _isLoading.value = false
             if (success) {
-                _isLoggedIn.value = true // Sucesso no login
+                firebaseRepository.fetchUserData { userResult ->
+                    _user.value = userResult
+                    _isLoggedIn.value = true
+                }
                 _error.value = null
             } else {
-                _error.value = message // Erro no login
+                _error.value = message
                 _isLoggedIn.value = false
             }
         }

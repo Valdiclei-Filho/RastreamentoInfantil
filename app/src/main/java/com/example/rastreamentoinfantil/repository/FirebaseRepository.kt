@@ -26,22 +26,29 @@ class FirebaseRepository {
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
                     val firebaseUser = auth.currentUser
-                    user.id = firebaseUser?.uid
                     firebaseUser?.let {
+                        val userData = hashMapOf(
+                            "id" to it.uid,
+                            "nomeCompleto" to user.name,
+                            "email" to user.email,
+                            "tipo" to null
+                        )
+
                         firestore.collection("users").document(it.uid)
-                            .set(user)
+                            .set(userData)
                             .addOnSuccessListener {
-                                callback(true, null) // Sucesso ao criar o usuário
+                                callback(true, null)
                             }
                             .addOnFailureListener { e ->
-                                callback(false, e.message) // Falha ao salvar o usuário
+                                callback(false, e.message)
                             }
                     }
                 } else {
-                    callback(false, task.exception?.message) // Falha na autenticação
+                    callback(false, task.exception?.message)
                 }
             }
     }
+
 
     fun signIn(email: String, password: String, callback: (Boolean, String?) -> Unit) {
         auth.signInWithEmailAndPassword(email, password)
@@ -118,5 +125,23 @@ class FirebaseRepository {
                 // Logar o erro: Log.e("FirebaseRepository", "Erro ao carregar geofence", e)
                 onComplete(null)
             }
+    }
+
+    fun fetchUserData(callback: (User?) -> Unit) {
+        val userId = FirebaseAuth.getInstance().currentUser?.uid
+        if (userId != null) {
+            FirebaseFirestore.getInstance().collection("users")
+                .document(userId)
+                .get()
+                .addOnSuccessListener { document ->
+                    val user = document.toObject(User::class.java)
+                    callback(user)
+                }
+                .addOnFailureListener {
+                    callback(null)
+                }
+        } else {
+            callback(null)
+        }
     }
 }
