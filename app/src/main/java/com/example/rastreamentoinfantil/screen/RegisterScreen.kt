@@ -1,6 +1,5 @@
 package com.example.rastreamentoinfantil.screen
 
-import androidx.compose.ui.semantics.error
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -32,14 +31,31 @@ fun RegisterScreen(
     navController: NavHostController
 ) {
     var name by remember { mutableStateOf("") }
-    var cpf by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var confirmEmail by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var showDialog by remember { mutableStateOf(false) }
+
     val isLoading by loginViewModel.isLoading.observeAsState(false)
     val error by loginViewModel.error.observeAsState()
+    val registerSuccess by loginViewModel.registerSuccess.observeAsState(false)
+
+    // Controle para mensagem do diálogo
+    val dialogMessage = when {
+        !error.isNullOrEmpty() -> error!!
+        password != confirmPassword -> "Senhas não conferem!"
+        email != confirmEmail -> "Emails não conferem!"
+        registerSuccess -> "Cadastrado com sucesso!"
+        else -> ""
+    }
+
+    // Observe as mudanças de error e registerSuccess para abrir o diálogo
+    androidx.compose.runtime.LaunchedEffect(error, registerSuccess) {
+        if (!error.isNullOrEmpty() || registerSuccess) {
+            showDialog = true
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -54,14 +70,7 @@ fun RegisterScreen(
             TextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Nome") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            TextField(
-                value = cpf,
-                onValueChange = { cpf = it },
-                label = { Text("CPF") },
+                label = { Text("Nome Completo") },
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -95,24 +104,21 @@ fun RegisterScreen(
             Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = {
-                    if(password != confirmPassword || email != confirmEmail){
+                    // Validações locais antes de chamar a ViewModel
+                    if (password != confirmPassword || email != confirmEmail) {
                         showDialog = true
                         return@Button
                     }
                     val user = User(
                         name = name,
-                        cpf = cpf,
                         email = email,
-                        type = "responsavel"
+                        type = null
                     )
                     loginViewModel.registerUser(user, password)
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Cadastrar-se")
-            }
-            if (!error.isNullOrEmpty()) {
-                showDialog = true
             }
         }
 
@@ -121,20 +127,16 @@ fun RegisterScreen(
                 onDismissRequest = { showDialog = false },
                 title = { Text("Cadastro") },
                 text = {
-                    if (!error.isNullOrEmpty()){
-                        Text(error!!)
-                    }else if (password != confirmPassword){
-                        Text("Senhas não conferem!")
-                    } else if(email != confirmEmail){
-                        Text("Emails não conferem!")
-                    }else{
-                        Text("Cadastrado com sucesso!")
-                    }
+                    Text(dialogMessage)
                 },
                 confirmButton = {
                     Button(onClick = {
                         showDialog = false
-                        navController.popBackStack()
+                        if (registerSuccess) {
+                            navController.navigate("login") {
+                                popUpTo("register") { inclusive = true }
+                            }
+                        }
                     }) {
                         Text("OK")
                     }

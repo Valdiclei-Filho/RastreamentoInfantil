@@ -33,18 +33,24 @@ fun LoginScreen(
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    val isLoggedIn by loginViewModel.isLoggedIn.observeAsState(false)
+    val user by loginViewModel.user.observeAsState()
     val isLoading by loginViewModel.isLoading.observeAsState(false)
     val error by loginViewModel.error.observeAsState()
     var showDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(key1 = isLoggedIn) {
-        if (isLoggedIn) {
-            navController.navigate("main") {
-                popUpTo("login") { inclusive = true }
+    LaunchedEffect(user) {
+        user?.let {
+            when (it.type) {
+                null, "responsavel" -> navController.navigate("main") {
+                    popUpTo("login") { inclusive = true }
+                }
+                "crianca" -> navController.navigate("child") {
+                    popUpTo("login") { inclusive = true }
+                }
             }
         }
     }
+
 
     Column(
         modifier = Modifier
