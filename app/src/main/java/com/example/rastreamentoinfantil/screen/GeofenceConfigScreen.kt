@@ -7,11 +7,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.semantics.error
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,7 +84,7 @@ fun GeofenceConfigScreen(
 
                 if (latitude != null && longitude != null && radius != null) {
                     val coordinate = Coordinate(latitude = latitude, longitude = longitude)
-                    val geofence = Geofence(coordinates = listOf(coordinate), radius = radius)
+                    val geofence = Geofence(coordinates = coordinate, radius = radius)
                     viewModel.saveGeofence(geofence)
                 } else {
                     // Mostrar erro para o usuário

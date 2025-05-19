@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.rastreamentoinfantil.model.Coordinate // Não se esqueça do import
 
 
 class MainViewModel(
@@ -27,6 +28,9 @@ class MainViewModel(
 
     private val _currentLocation = MutableStateFlow<android.location.Location?>(null)
     val currentLocation: StateFlow<android.location.Location?> = _currentLocation
+
+    private val _geofenceArea = MutableStateFlow<Geofence?>(null)
+    val geofenceArea: StateFlow<Geofence?> = _geofenceArea
 
     private val _locationRecords = MutableLiveData<List<LocationRecord>>()
     val locationRecords: LiveData<List<LocationRecord>> get() = _locationRecords
@@ -49,6 +53,16 @@ class MainViewModel(
                 _currentLocation.value = location
             }
         }
+
+
+        // Inicializa a geofence com dados de exemplo
+        // No futuro, você pode carregar isso de uma fonte de dados (Firebase, etc.)
+        _geofenceArea.value = Geofence(
+            id = "escola_principal",
+            coordinates = Coordinate(latitude = 23.551234, longitude = 46.634567),
+            radius = 200.00 // Exemplo: Raio de 200 metros
+        )
+
         loadUserIdAndGeofence() // Carregar usuário e geofence ao inicializar
     }
 
@@ -96,7 +110,7 @@ class MainViewModel(
         _isLoading.value = true
         geocodingService.getAddressFromLocation(location) { address ->
             // Usar a currentGeofence carregada
-            val isOutOfRoute = GeofenceHelper().isLocationInGeofence(location, currentGeofence ?: com.example.rastreamentoinfantil.model.Geofence()) // Fornecer um padrão se currentGeofence for nulo
+            val isOutOfRoute = GeofenceHelper().isLocationInGeofence(location, currentGeofence ?: com.example.rastreamentoinfantil.model.Geofence(radius = 200.00, coordinates = Coordinate(latitude = 23.551234, longitude = 46.634567))) // Fornecer um padrão se currentGeofence for nulo
 
             _isLocationOutOfRoute.postValue(isOutOfRoute)
 

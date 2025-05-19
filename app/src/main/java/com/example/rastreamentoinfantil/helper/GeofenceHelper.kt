@@ -11,23 +11,23 @@ import kotlin.math.sin
 class GeofenceHelper {
 
     fun isLocationInGeofence(currentLocation: Location, geofence: Geofence): Boolean {
+        // Se o raio for nulo, consideramos que não há geofence para verificar,
+        // ou você pode decidir retornar false dependendo da sua lógica de negócios.
+        // Por enquanto, manterei sua lógica original de retornar true se o raio for nulo.
         geofence.radius?.let { radius ->
-            // Você precisa garantir que 'coordinates' existe e é acessível aqui.
-            // Abordaremos 'coordinates' em seguida.
-            if (geofence.coordinates.isEmpty()){
-                return true
-            }
-            return geofence.coordinates.any {
-                val distance = calculateDistance(
-                    currentLocation.latitude,
-                    currentLocation.longitude,
-                    it.latitude!!,
-                    it.longitude!!
-                )
-                distance < radius
-            }
+            // Não há lista de coordenadas para verificar se está vazia.
+            // Uma geofence com um único ponto central sempre tem coordenadas.
+            // A verificação de nulidade das coordenadas já foi tratada antes.
+
+            val distance = calculateDistance(
+                currentLocation.latitude,
+                currentLocation.longitude,
+                geofence.coordinates.latitude,  // Usar diretamente a coordenada da geofence
+                geofence.coordinates.longitude // Usar diretamente a coordenada da geofence
+            )
+            return distance < radius
         }
-        return true // Retorna true se o raio for nulo
+        return true // Retorna true se o raio for nulo (ou se a geofence não tiver raio)
     }
 
     private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
