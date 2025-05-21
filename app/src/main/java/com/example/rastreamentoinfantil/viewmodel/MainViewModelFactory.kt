@@ -9,17 +9,18 @@ import com.example.rastreamentoinfantil.service.LocationService
 import android.app.Application
 
 
+// MainViewModelFactory.kt
 class MainViewModelFactory(
-    private val application: Application, // Adicione
+    private val application: Application, // Já está aqui
     private val firebaseRepository: FirebaseRepository,
     private val locationService: LocationService,
     private val geocodingService: GeocodingService,
-    private val geofenceHelper: GeofenceHelper // Adicione
+    private val geofenceHelper: com.example.rastreamentoinfantil.helper.GeofenceHelper
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return MainViewModel(application, firebaseRepository, locationService, geocodingService, geofenceHelper) as T // Passe
+            return MainViewModel(application, firebaseRepository, locationService, geocodingService, geofenceHelper) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

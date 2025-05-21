@@ -1,6 +1,6 @@
 package com.example.rastreamentoinfantil.repository
 
-import androidx.compose.foundation.layout.add
+import com.example.rastreamentoinfantil.model.Coordinate
 import com.example.rastreamentoinfantil.model.LocationRecord
 import com.example.rastreamentoinfantil.model.User
 import com.example.rastreamentoinfantil.model.Geofence
@@ -8,8 +8,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.firestore.ktx.toObject
-import kotlin.io.path.exists
 
 class FirebaseRepository {
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
@@ -82,7 +80,8 @@ class FirebaseRepository {
             .orderBy("dateTime", Query.Direction.DESCENDING)
             .get()
             .addOnSuccessListener { result ->
-                val records = result.documents.mapNotNull { it.toObject(LocationRecord::class.java) }
+                val records =
+                    result.documents.mapNotNull { it.toObject(LocationRecord::class.java) }
                 callback(records) // Devolve a lista de registros
             }
             .addOnFailureListener {
@@ -105,26 +104,81 @@ class FirebaseRepository {
             }
     }
 
-    // Você também precisará de uma função para carregar a geofence
-    fun getUserGeofence(userId: String, onComplete: (com.example.rastreamentoinfantil.model.Geofence?) -> Unit) {
-        // ... restante da função ...
-        firestore.collection("users")
-            .document(userId)
-            .collection("geofence")
-            .document("user_geofence")
+    fun saveUserGeofence(userId: String, geofence: Geofence, onComplete: (Boolean) -> Unit) {
+        val geofenceData = hashMapOf(
+            "id" to geofence.id,
+            "name" to geofence.name, // Salva o nome
+            "radius" to geofence.radius,
+            // Salva as coordenadas como um mapa aninhado ou campos separados
+            "coordinate_latitude" to geofence.coordinates.latitude,
+            "coordinate_longitude" to geofence.coordinates.longitude
+            // Alternativamente, como um mapa aninhado:
+            // "coordinates" to hashMapOf(
+            //     "latitude" to geofence.coordinates.latitude,
+            //     "longitude" to geofence.coordinates.longitude
+            // )
+        )
+
+        firestore.collection("users").document(userId).collection("activeGeofence")
+            .document("details")
+            .set(geofenceData)
+            .addOnSuccessListener { onComplete(true) }
+            .addOnFailureListener {
+                // Log.e("FirebaseRepo", "Erro ao salvar geofence", it)
+                onComplete(false)
+            }
+    }
+
+    fun getUserGeofence(userId: String, onComplete: (Geofence?) -> Unit) {
+        firestore.collection("users").document(userId).collection("activeGeofence")
+            .document("details")
             .get()
             .addOnSuccessListener { document ->
                 if (document != null && document.exists()) {
-                    val geofence = document.toObject<com.example.rastreamentoinfantil.model.Geofence>()
-                    onComplete(geofence)
+                    try {
+                        val id = document.getString("id")
+                        val name = document.getString("name") // Carrega o nome
+                        val radius = document.getDouble("radius")?.toFloat()
+
+                        // Carrega as coordenadas
+                        val latitude = document.getDouble("coordinate_latitude")
+                        val longitude = document.getDouble("coordinate_longitude")
+
+                        if (latitude != null && longitude != null && radius != null) {
+                            val loadedCoordinates =
+                                Coordinate(latitude = latitude, longitude = longitude)
+                            val geofence = Geofence(
+                                id = id,
+                                name = name,
+                                radius = radius,
+                                coordinates = loadedCoordinates
+                            )
+                            onComplete(geofence)
+                        } else {
+                            // Log.w("FirebaseRepo", "Dados de geofence incompletos do Firestore")
+                            onComplete(null)
+                        }
+                    } catch (e: Exception) {
+                        // Log.e("FirebaseRepo", "Erro ao parsear geofence do Firestore", e)
+                        onComplete(null)
+                    }
                 } else {
+                    // Log.d("FirebaseRepo", "Nenhum documento de geofence encontrado para o usuário $userId")
                     onComplete(null)
                 }
             }
-            .addOnFailureListener { e ->
-                // Logar o erro: Log.e("FirebaseRepository", "Erro ao carregar geofence", e)
+            .addOnFailureListener {
+                // Log.e("FirebaseRepo", "Erro ao buscar geofence do Firestore", it)
                 onComplete(null)
             }
+    }
+
+    fun deleteUserGeofence(userId: String, onComplete: (Boolean) -> Unit) {
+        firestore.collection("users").document(userId).collection("activeGeofence")
+            .document("details")
+            .delete()
+            .addOnSuccessListener { onComplete(true) }
+            .addOnFailureListener { onComplete(false) }
     }
 
     fun fetchUserData(callback: (User?) -> Unit) {

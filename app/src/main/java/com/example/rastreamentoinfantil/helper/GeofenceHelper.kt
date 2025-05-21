@@ -1,15 +1,10 @@
-// GeofenceHelper.kt
 package com.example.rastreamentoinfantil.helper
 
 import android.location.Location
-// Removido import desnecessário: import androidx.compose.ui.geometry.isEmpty
 import com.example.rastreamentoinfantil.model.Geofence
-import kotlin.math.acos
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt // Importe sqrt
-import kotlin.math.max // Importe max
-import kotlin.math.min // Importe min
+import kotlin.math.sqrt
 import kotlin.math.atan2
 
 class GeofenceHelper {

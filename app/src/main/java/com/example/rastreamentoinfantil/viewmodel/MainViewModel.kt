@@ -4,54 +4,57 @@ import android.app.Application
 import android.location.Location
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.rastreamentoinfantil.model.Geofence // Sua classe Geofence personalizada
+import com.example.rastreamentoinfantil.model.Geofence
 import com.example.rastreamentoinfantil.model.LocationRecord
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
 import com.example.rastreamentoinfantil.service.GeocodingService
-import com.example.rastreamentoinfantil.helper.GeofenceHelper
+import com.example.rastreamentoinfantil.helper.GeofenceHelper // Certifique-se que o nome da classe é GeofenceHelper
 import com.example.rastreamentoinfantil.service.LocationService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.example.rastreamentoinfantil.model.Coordinate // Não se esqueça do import
-import kotlinx.coroutines.flow.combine // Adicione este import
-import androidx.lifecycle.AndroidViewModel // Mude de ViewModel para AndroidViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.filterNotNull
 
 
 class MainViewModel(
-    application: Application, // Application context
+    application: Application,
     private val firebaseRepository: FirebaseRepository,
     private val locationService: LocationService,
     private val geocodingService: GeocodingService,
-    private val geofenceHelper: GeofenceHelper // Injete o GeofenceHelper
+    private val geofenceHelperClass: GeofenceHelper // Injete o GeofenceHelper
 ) : AndroidViewModel(application) {
 
-    private val _showExitNotificationEvent = MutableSharedFlow<String>() // Emite o ID da geofence
+    private val _showExitNotificationEvent = MutableSharedFlow<String>()
     val showExitNotificationEvent = _showExitNotificationEvent.asSharedFlow()
 
-    private var lastKnownGeofenceStatus: Boolean? = null // Para detectar a MUDANÇA
+    private var lastKnownGeofenceStatus: Boolean? = null
 
     private val _currentLocation = MutableStateFlow<android.location.Location?>(null)
-    val currentLocation: StateFlow<android.location.Location?> = _currentLocation
+    val currentLocation: StateFlow<android.location.Location?> = _currentLocation.asStateFlow()
 
+    // Este será o StateFlow que a UI e a lógica de notificação observam
     private val _geofenceArea = MutableStateFlow<Geofence?>(null)
-    val geofenceArea: StateFlow<Geofence?> = _geofenceArea
+    val geofenceArea: StateFlow<Geofence?> = _geofenceArea.asStateFlow()
 
-    private val _isUserInsideGeofence = MutableStateFlow<Boolean?>(null) // Nullable inicialmente
-    val isUserInsideGeofence: StateFlow<Boolean?> = _isUserInsideGeofence
+    private val _isUserInsideGeofence = MutableStateFlow<Boolean?>(null)
+    val isUserInsideGeofence: StateFlow<Boolean?> = _isUserInsideGeofence.asStateFlow()
 
     private val _locationRecords = MutableLiveData<List<LocationRecord>>()
     val locationRecords: LiveData<List<LocationRecord>> get() = _locationRecords
 
-    private val _isLocationOutOfRoute = MutableLiveData<Boolean>()
-    val isLocationOutOfRoute: LiveData<Boolean> get() = _isLocationOutOfRoute
+    // Este LiveData pode ser derivado de _isUserInsideGeofence se a lógica for a mesma
+    // ou pode ter sua própria lógica se "fora de rota" for diferente de "fora da geofence circular"
+    private val _isLocationOutOfGeofence = MutableLiveData<Boolean>() // Renomeado para clareza
+    val isLocationOutOfGeofence: LiveData<Boolean> get() = _isLocationOutOfGeofence
 
     private val _isLoading = MutableLiveData<Boolean>()
     val isLoading: LiveData<Boolean> get() = _isLoading
@@ -59,48 +62,50 @@ class MainViewModel(
     private val _error = MutableLiveData<String?>()
     val error: LiveData<String?> get() = _error
 
-    private var currentGeofence: com.example.rastreamentoinfantil.model.Geofence? = null // Inicializar como null
+    // Removido: private var currentGeofence: Geofence? = null
+    // Usaremos _geofenceArea.value como a fonte da verdade para a geofence ativa
     private var currentUserId: String? = null
 
     init {
-        _geofenceArea.value = Geofence(
-            id = "escola_principal",
-            coordinates = Coordinate(latitude = -23.550520, longitude = -46.633308),
-            radius = 2000f // Exemplo: Raio de 200 metros
-        )
+        // A geofence será carregada via loadUserIdAndGeofence()
+        // Não precisamos mais do loadSavedGeofence() daqui (que era para SharedPreferences)
+        // nem do if (_geofenceArea.value == null) para definir uma padrão aqui,
+        // pois o carregamento do Firebase cuidará disso.
 
-        viewModelScope.launch {
-            // Combina os flows de localização e geofence para calcular o status
-            currentLocation.combine(geofenceArea) { location, geofence ->
-                if (location != null && geofence != null) {
-                    geofenceHelper.isLocationInGeofence(location, geofence)
-                } else {
-                    null // Se não houver localização ou geofence, o status é indefinido
-                }
-            }.collect { currentStatus ->
-                _isUserInsideGeofence.value = currentStatus
-                println("MainViewModel: Status da Geofence atualizado para: $currentStatus. Último status: $lastKnownGeofenceStatus")
-
-                // Verifica se houve uma MUDANÇA de DENTRO para FORA
-                if (lastKnownGeofenceStatus == true && currentStatus == false) {
-                    println("ALERTA: Usuário saiu da geofence! Disparando evento de notificação.")
-                    val geofenceId = geofenceArea.value?.id ?: "Área Desconhecida"
-                    _showExitNotificationEvent.emit(geofenceId) // Emite o evento
-                }
-                lastKnownGeofenceStatus = currentStatus // Atualiza o último status conhecido
-            }
-        }
-
-        // Coleta atualizações de localização do LocationService
         viewModelScope.launch {
             locationService.getLocationUpdates().collect { location ->
                 _currentLocation.value = location
             }
         }
 
+        viewModelScope.launch {
+            currentLocation.combine(geofenceArea) { location, geofence -> // geofenceArea é o StateFlow
+                if (location != null && geofence != null) {
+                    geofenceHelperClass.isLocationInGeofence(location, geofence)
+                } else {
+                    null
+                }
+            }.collect { currentStatus ->
+                _isUserInsideGeofence.value = currentStatus
+                _isLocationOutOfGeofence.postValue(currentStatus == false) // Atualiza o LiveData
 
-        // Inicializa a geofence com dados de exemplo
-        // No futuro, você pode carregar isso de uma fonte de dados (Firebase, etc.)
+                if (lastKnownGeofenceStatus == true && currentStatus == false) {
+                    val geofenceId = geofenceArea.value?.id ?: "Área Segura"
+                    _showExitNotificationEvent.emit(geofenceId)
+                }
+                lastKnownGeofenceStatus = currentStatus
+            }
+        }
+
+        viewModelScope.launch {
+            currentLocation
+                .filterNotNull() // Só processa se a localização não for nula
+                // .debounce(10000) // Opcional: processa apenas se a localização não mudar por X ms (ex: 10s)
+                // .distinctUntilChanged { old, new -> old?.latitude == new?.latitude && old?.longitude == new?.longitude } // Opcional: só processa se a localização realmente mudou
+                .collect { location ->
+                    processAndSaveLocationRecord(location)
+                }
+        }
 
         loadUserIdAndGeofence() // Carregar usuário e geofence ao inicializar
     }
@@ -110,65 +115,173 @@ class MainViewModel(
         val currentUser = firebaseRepository.getCurrentUser()
         if (currentUser != null) {
             currentUserId = currentUser.uid
-            loadUserGeofence(currentUserId!!) // Carregar geofence após obter o ID do usuário
+            // Agora, loadUserGeofence irá popular _geofenceArea
+            loadUserGeofence(currentUserId!!)
         } else {
             _isLoading.value = false
             _error.value = "Usuário não encontrado!"
+            _geofenceArea.value = null // Garante que nenhuma geofence antiga persista se o usuário deslogar
+            println("Nenhum usuário logado, nenhuma geofence será carregada do Firebase.")
         }
     }
 
     private fun loadUserGeofence(userId: String) {
-        firebaseRepository.getUserGeofence(userId) { geofence ->
-            currentGeofence = geofence
-            _isLoading.value = false
-            loadLocationRecords() // Carregar registros de localização após carregar a geofence
+        firebaseRepository.getUserGeofence(userId) { geofenceFromFirebase ->
+            // Atualiza o StateFlow _geofenceArea com a geofence do Firebase
+            _geofenceArea.value = geofenceFromFirebase
+            _isLoading.value = false // Mover para cá ou após loadLocationRecords
+
+            if (geofenceFromFirebase != null) {
+                println("Geofence carregada do Firebase para o usuário $userId: $geofenceFromFirebase")
+            } else {
+                println("Nenhuma geofence encontrada no Firebase para o usuário $userId.")
+            }
+            loadLocationRecords() // Carregar registros de localização após tentar carregar a geofence
         }
     }
 
     private fun loadLocationRecords() {
         currentUserId?.let { userId ->
-            _isLoading.value = true
+            // _isLoading.value = true; // Já definido em loadUserIdAndGeofence ou loadUserGeofence
             firebaseRepository.getUserLocationRecords(userId) { records ->
                 _locationRecords.postValue(records)
-                _isLoading.value = false
+                // _isLoading.value = false; // Deve ser definido após todas as operações de carregamento inicial
             }
         }
     }
 
+    // Função para permitir que a UI defina/atualize uma geofence
+    // Esta geofence deve então ser salva no Firebase para o usuário atual
+    fun updateUserGeofence(newGeofence: Geofence?) {
+        _geofenceArea.value = newGeofence // Atualiza imediatamente o StateFlow
+        currentUserId?.let { userId ->
+            if (newGeofence != null) {
+                _isLoading.value = true
+                firebaseRepository.saveUserGeofence(userId, newGeofence) { success ->
+                    _isLoading.value = false
+                    if (success) {
+                        println("Geofence salva no Firebase para o usuário $userId.")
+                    } else {
+                        _error.value = "Falha ao salvar geofence no Firebase."
+                        // Opcional: Reverter _geofenceArea.value para o valor anterior se o salvamento falhar?
+                    }
+                }
+            } else { // Se newGeofence for null, significa que estamos limpando a geofence
+                _isLoading.value = true
+                firebaseRepository.deleteUserGeofence(userId) { success ->
+                    _isLoading.value = false
+                    if (success) {
+                        println("Geofence removida do Firebase para o usuário $userId.")
+                    } else {
+                        _error.value = "Falha ao remover geofence no Firebase."
+                    }
+                }
+            }
+        } ?: run {
+            _error.value = "ID do usuário não disponível para salvar/remover geofence."
+            if (newGeofence != null) {
+                // Se não houver usuário, mas uma geofence foi definida (ex: modo offline ou antes do login)
+                // você pode querer salvá-la localmente usando SharedPreferences como um fallback ou cache temporário.
+                // SharedPreferencesHelper.saveGeofence(getApplication(), newGeofence)
+                println("Nenhum usuário logado. A geofence definida não foi salva no Firebase.")
+            }
+        }
+    }
+
+
     fun startLocationMonitoring() {
-        locationService.startLocationUpdates { location ->
+        locationService.startLocationUpdates { location -> // Esta lambda de startLocationUpdates parece redundante
+            // se você já coleta de locationService.getLocationUpdates()
+            // Considere ter apenas um mecanismo de coleta.
             handleLocationUpdate(location)
         }
+        // Se locationService.getLocationUpdates() já emite para _currentLocation.value,
+        // e _currentLocation.value já está sendo combinado com _geofenceArea.value,
+        // então handleLocationUpdate pode não ser necessário da forma como está,
+        // ou sua lógica precisa ser integrada ao fluxo de `combine`.
     }
 
     fun stopLocationMonitoring() {
         locationService.stopLocationUpdates()
     }
 
-    private fun handleLocationUpdate(location: Location) {
-        _isLoading.value = true
+    private fun processAndSaveLocationRecord(location: Location) {
+        // isLoading para esta operação específica, se necessário
+        // _isLoading.value = true
+
+        val activeGeofence = _geofenceArea.value
+        val isCurrentlyInside = _isUserInsideGeofence.value
+        val isDeviceOutsideGeofence =
+            if (activeGeofence == null) false else (isCurrentlyInside == false)
+
         geocodingService.getAddressFromLocation(location) { address ->
-            // Usar a currentGeofence carregada
-            val isOutOfRoute = GeofenceHelper().isLocationInGeofence(location, currentGeofence ?: Geofence(radius = 200f, coordinates = Coordinate(latitude = -23.551234, longitude = -46.634567))) // Fornecer um padrão se currentGeofence for nulo
+            val locationRecord = LocationRecord(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                address = address,
+                dateTime = SimpleDateFormat(
+                    "dd/MM/yyyy - HH:mm",
+                    Locale.getDefault()
+                ).format(Date()),
+                isOutOfRoute = isDeviceOutsideGeofence // Renomeie o campo no LocationRecord se for sobre geofence
+            )
 
-            _isLocationOutOfRoute.postValue(isOutOfRoute)
+            currentUserId?.let { userId ->
+                firebaseRepository.saveLocationRecord(locationRecord, userId) { success ->
+                    if (success) {
+                        loadLocationRecords() // Ou atualize a lista localmente
+                    } else {
+                        _error.postValue("Falha ao salvar localização!")
+                    }
+                    // _isLoading.postValue(false)
+                }
+            } ?: run {
+                // _isLoading.postValue(false)
+                _error.postValue("Não é possível salvar o registro de localização: ID do usuário ausente.")
+            }
+        }
+    }
 
+    // Refatorar handleLocationUpdate para usar _geofenceArea.value e o geofenceHelperClass injetado
+    private fun handleLocationUpdate(location: Location) {
+        _isLoading.value = true // Isso pode causar pisca-pisca na UI a cada atualização de localização
+        // Considere usar isLoading para operações mais longas como salvar no Firebase.
+
+        val activeGeofence = _geofenceArea.value // Usa a geofence ativa do StateFlow
+
+        // O cálculo de estar dentro ou fora da geofence já é feito pelo flow `combine` que atualiza `_isUserInsideGeofence`
+        // e `_isLocationOutOfGeofence`. Podemos usar esses valores.
+        val isCurrentlyInside = _isUserInsideGeofence.value
+        val isCurrentlyOutside = if (isCurrentlyInside == null) false else !isCurrentlyInside
+
+        geocodingService.getAddressFromLocation(location) { address ->
             val locationRecord = LocationRecord(
                 latitude = location.latitude,
                 longitude = location.longitude,
                 address = address,
                 dateTime = SimpleDateFormat("dd/MM/yyyy - HH:mm", Locale.getDefault()).format(Date()),
-                isOutOfRoute = isOutOfRoute
+                // Use o status calculado pelo flow `combine`
+                // Se activeGeofence for null, isOutOfRoute pode ser considerado false ou true dependendo da sua lógica
+                isOutOfRoute = if (activeGeofence == null) false else isCurrentlyOutside
             )
-            currentUserId?.let{
-                firebaseRepository.saveLocationRecord(locationRecord, it) { success ->
+
+            currentUserId?.let { userId ->
+                firebaseRepository.saveLocationRecord(locationRecord, userId) { success ->
                     if (success) {
-                        loadLocationRecords() // Recarregar registros após salvar
+                        // Não precisa chamar loadLocationRecords() aqui a menos que você queira
+                        // recarregar todos os registros a cada novo ponto salvo.
+                        // Se você quiser apenas adicionar o novo registro à lista existente,
+                        // pode atualizar _locationRecords localmente e depois sincronizar.
+                        // Para simplificar por agora, manter o recarregamento está OK.
+                        loadLocationRecords()
                     } else {
-                        _error.postValue("Falha ao salvar localizacao!")
+                        _error.postValue("Falha ao salvar localização!")
                     }
-                    _isLoading.postValue(false)
+                    _isLoading.postValue(false) // Define isLoading como false após a tentativa de salvar
                 }
+            } ?: run {
+                _isLoading.postValue(false) // Garante que isLoading seja definido como false se não houver ID de usuário
+                _error.postValue("Não é possível salvar o registro de localização: ID do usuário ausente.")
             }
         }
     }
