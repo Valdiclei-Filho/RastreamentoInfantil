@@ -2,36 +2,43 @@
 package com.example.rastreamentoinfantil.helper
 
 import android.location.Location
-import androidx.compose.ui.geometry.isEmpty
-import com.example.rastreamentoinfantil.model.Geofence // Importando sua classe Geofenceimport kotlin.math.acos
+// Removido import desnecessário: import androidx.compose.ui.geometry.isEmpty
+import com.example.rastreamentoinfantil.model.Geofence
 import kotlin.math.acos
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt // Importe sqrt
+import kotlin.math.max // Importe max
+import kotlin.math.min // Importe min
+import kotlin.math.atan2
 
 class GeofenceHelper {
 
     fun isLocationInGeofence(currentLocation: Location, geofence: Geofence): Boolean {
-        // Se o raio for nulo, consideramos que não há geofence para verificar,
-        // ou você pode decidir retornar false dependendo da sua lógica de negócios.
-        // Por enquanto, manterei sua lógica original de retornar true se o raio for nulo.
-        geofence.radius?.let { radius ->
-            // Não há lista de coordenadas para verificar se está vazia.
-            // Uma geofence com um único ponto central sempre tem coordenadas.
-            // A verificação de nulidade das coordenadas já foi tratada antes.
-
-            val distance = calculateDistance(
-                currentLocation.latitude,
-                currentLocation.longitude,
-                geofence.coordinates.latitude,  // Usar diretamente a coordenada da geofence
-                geofence.coordinates.longitude // Usar diretamente a coordenada da geofence
-            )
-            return distance < radius
+        if (geofence.radius <= 0) {
+            println("GeofenceHelper: Raio inválido (${geofence.radius}), retornando false")
+            return false
         }
-        return true // Retorna true se o raio for nulo (ou se a geofence não tiver raio)
+
+        val distance = calculateDistance(
+            currentLocation.latitude,
+            currentLocation.longitude,
+            geofence.coordinates.latitude,
+            geofence.coordinates.longitude
+        )
+
+        println("GeofenceHelper: Localização Atual: (${currentLocation.latitude}, ${currentLocation.longitude})")
+        println("GeofenceHelper: Centro Geofence: (${geofence.coordinates.latitude}, ${geofence.coordinates.longitude})")
+        println("GeofenceHelper: Raio Geofence: ${geofence.radius}m")
+        println("GeofenceHelper: Distância Calculada: ${distance}m")
+
+        val isInside = distance < geofence.radius
+        println("GeofenceHelper: Está dentro? $isInside (distance < radius)")
+        return isInside
     }
 
     private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val R = 6371e3 // Earth radius in meters
+        val r = 6371e3 // Raio da Terra em metros
         val phi1 = Math.toRadians(lat1)
         val phi2 = Math.toRadians(lat2)
         val deltaPhi = Math.toRadians(lat2 - lat1)
@@ -40,8 +47,15 @@ class GeofenceHelper {
         val a = sin(deltaPhi / 2) * sin(deltaPhi / 2) +
                 cos(phi1) * cos(phi2) *
                 sin(deltaLambda / 2) * sin(deltaLambda / 2)
-        val c = 2 * acos(kotlin.math.sqrt(a.toDouble()))
 
-        return R * c
+        // val sqrtA = sqrt(a)
+        // val validatedSqrtA = min(1.0, max(-1.0, sqrtA)) // Não precisamos mais disto para atan2
+
+        // Forma mais estável numericamente, especialmente para distâncias pequenas:
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a)) // <<< MUDANÇA AQUI
+
+        val distance = r * c
+        println("calculateDistance: lat1=$lat1, lon1=$lon1, lat2=$lat2, lon2=$lon2, a_val=$a, c_val=$c, result=$distance")
+        return distance
     }
 }

@@ -1,5 +1,6 @@
 package com.example.rastreamentoinfantil.viewmodel
 
+import android.app.Application
 import android.location.Location
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -18,19 +19,33 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.example.rastreamentoinfantil.model.Coordinate // Não se esqueça do import
+import kotlinx.coroutines.flow.combine // Adicione este import
+import androidx.lifecycle.AndroidViewModel // Mude de ViewModel para AndroidViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 
 class MainViewModel(
+    application: Application, // Application context
     private val firebaseRepository: FirebaseRepository,
     private val locationService: LocationService,
     private val geocodingService: GeocodingService,
-) : ViewModel() {
+    private val geofenceHelper: GeofenceHelper // Injete o GeofenceHelper
+) : AndroidViewModel(application) {
+
+    private val _showExitNotificationEvent = MutableSharedFlow<String>() // Emite o ID da geofence
+    val showExitNotificationEvent = _showExitNotificationEvent.asSharedFlow()
+
+    private var lastKnownGeofenceStatus: Boolean? = null // Para detectar a MUDANÇA
 
     private val _currentLocation = MutableStateFlow<android.location.Location?>(null)
     val currentLocation: StateFlow<android.location.Location?> = _currentLocation
 
     private val _geofenceArea = MutableStateFlow<Geofence?>(null)
     val geofenceArea: StateFlow<Geofence?> = _geofenceArea
+
+    private val _isUserInsideGeofence = MutableStateFlow<Boolean?>(null) // Nullable inicialmente
+    val isUserInsideGeofence: StateFlow<Boolean?> = _isUserInsideGeofence
 
     private val _locationRecords = MutableLiveData<List<LocationRecord>>()
     val locationRecords: LiveData<List<LocationRecord>> get() = _locationRecords
@@ -48,6 +63,35 @@ class MainViewModel(
     private var currentUserId: String? = null
 
     init {
+        _geofenceArea.value = Geofence(
+            id = "escola_principal",
+            coordinates = Coordinate(latitude = -23.550520, longitude = -46.633308),
+            radius = 2000f // Exemplo: Raio de 200 metros
+        )
+
+        viewModelScope.launch {
+            // Combina os flows de localização e geofence para calcular o status
+            currentLocation.combine(geofenceArea) { location, geofence ->
+                if (location != null && geofence != null) {
+                    geofenceHelper.isLocationInGeofence(location, geofence)
+                } else {
+                    null // Se não houver localização ou geofence, o status é indefinido
+                }
+            }.collect { currentStatus ->
+                _isUserInsideGeofence.value = currentStatus
+                println("MainViewModel: Status da Geofence atualizado para: $currentStatus. Último status: $lastKnownGeofenceStatus")
+
+                // Verifica se houve uma MUDANÇA de DENTRO para FORA
+                if (lastKnownGeofenceStatus == true && currentStatus == false) {
+                    println("ALERTA: Usuário saiu da geofence! Disparando evento de notificação.")
+                    val geofenceId = geofenceArea.value?.id ?: "Área Desconhecida"
+                    _showExitNotificationEvent.emit(geofenceId) // Emite o evento
+                }
+                lastKnownGeofenceStatus = currentStatus // Atualiza o último status conhecido
+            }
+        }
+
+        // Coleta atualizações de localização do LocationService
         viewModelScope.launch {
             locationService.getLocationUpdates().collect { location ->
                 _currentLocation.value = location
@@ -57,11 +101,6 @@ class MainViewModel(
 
         // Inicializa a geofence com dados de exemplo
         // No futuro, você pode carregar isso de uma fonte de dados (Firebase, etc.)
-        _geofenceArea.value = Geofence(
-            id = "escola_principal",
-            coordinates = Coordinate(latitude = 23.551234, longitude = 46.634567),
-            radius = 200.00 // Exemplo: Raio de 200 metros
-        )
 
         loadUserIdAndGeofence() // Carregar usuário e geofence ao inicializar
     }
@@ -110,7 +149,7 @@ class MainViewModel(
         _isLoading.value = true
         geocodingService.getAddressFromLocation(location) { address ->
             // Usar a currentGeofence carregada
-            val isOutOfRoute = GeofenceHelper().isLocationInGeofence(location, currentGeofence ?: com.example.rastreamentoinfantil.model.Geofence(radius = 200.00, coordinates = Coordinate(latitude = 23.551234, longitude = 46.634567))) // Fornecer um padrão se currentGeofence for nulo
+            val isOutOfRoute = GeofenceHelper().isLocationInGeofence(location, currentGeofence ?: Geofence(radius = 200f, coordinates = Coordinate(latitude = -23.551234, longitude = -46.634567))) // Fornecer um padrão se currentGeofence for nulo
 
             _isLocationOutOfRoute.postValue(isOutOfRoute)
 

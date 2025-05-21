@@ -34,5 +34,8 @@ fun Navigation(
         composable("main") {
             MainScreen(mainViewModel)
         }
+        composable("mapscreen") {
+            MapScreen()
+        }
     }
 }

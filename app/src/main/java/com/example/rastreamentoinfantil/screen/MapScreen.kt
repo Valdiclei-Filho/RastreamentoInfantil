@@ -19,6 +19,7 @@ fun MapScreen(
 ) {
     val currentLocation by mainViewModel.currentLocation.collectAsState()
     val geofence by mainViewModel.geofenceArea.collectAsState() // Observe a geofence
+    val isInsideGeofence by mainViewModel.isUserInsideGeofence.collectAsState() // Observe o status
 
     val defaultLocation = LatLng(-23.550520, -46.633308)
     val initialZoom = 15f
@@ -32,7 +33,7 @@ fun MapScreen(
             val userLatLng = LatLng(location.latitude, location.longitude)
             cameraPositionState.animate(
                 update = CameraUpdateFactory.newLatLngZoom(userLatLng, cameraPositionState.position.zoom),
-                durationMs = 1000
+                durationMs = 10000
             )
         }
     }
@@ -56,21 +57,38 @@ fun MapScreen(
         // Desenha o círculo da Geofence
         geofence?.let { fence ->
             val centerLatLng = LatLng(fence.coordinates.latitude, fence.coordinates.longitude)
+            val geofenceStrokeColor: Color
+            val geofenceFillColor: Color
+
+            when (isInsideGeofence) {
+                true -> { // Usuário DENTRO da geofence
+                    geofenceStrokeColor = Color.Green.copy(alpha = 0.8f)
+                    geofenceFillColor = Color.Green.copy(alpha = 0.3f)
+                }
+
+                false -> { // Usuário FORA da geofence
+                    geofenceStrokeColor = Color.Red.copy(alpha = 0.8f)
+                    geofenceFillColor = Color.Red.copy(alpha = 0.3f)
+                }
+
+                null -> { // Status indefinido (sem localização ou geofence ainda)
+                    geofenceStrokeColor = Color.Gray.copy(alpha = 0.7f)
+                    geofenceFillColor = Color.Gray.copy(alpha = 0.2f)
+                }
+            }
+
             Circle(
                 center = centerLatLng,
-                radius = fence.radius.toDouble(), // Raio em metros
-                strokeColor = Color.Blue.copy(alpha = 0.7f), // Cor da borda
-                strokeWidth = 5f, // Largura da borda
-                fillColor = Color.Blue.copy(alpha = 0.2f) // Cor do preenchimento
+                radius = fence.radius.toDouble(), // Já é Double se definido assim na sua classe Geofence
+                strokeColor = geofenceStrokeColor,
+                strokeWidth = 5f,
+                fillColor = geofenceFillColor
             )
 
-            // Opcional: Adicionar um marcador para o centro da geofence
             Marker(
                 state = MarkerState(position = centerLatLng),
                 title = "Área Segura (${fence.id})",
-                snippet = "Centro da geofence",
-                // Você pode usar um ícone diferente para o centro da geofence
-                // icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
+                snippet = "Centro da geofence"
             )
         }
     }

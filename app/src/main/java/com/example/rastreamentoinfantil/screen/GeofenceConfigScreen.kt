@@ -80,7 +80,7 @@ fun GeofenceConfigScreen(
             onClick = {
                 val latitude = latitudeInput.toDoubleOrNull()
                 val longitude = longitudeInput.toDoubleOrNull()
-                val radius = radiusInput.toDoubleOrNull()
+                val radius = radiusInput.toFloatOrNull()
 
                 if (latitude != null && longitude != null && radius != null) {
                     val coordinate = Coordinate(latitude = latitude, longitude = longitude)
