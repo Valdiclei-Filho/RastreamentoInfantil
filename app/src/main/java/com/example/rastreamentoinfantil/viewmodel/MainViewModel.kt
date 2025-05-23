@@ -2,6 +2,7 @@ package com.example.rastreamentoinfantil.viewmodel
 
 import android.app.Application
 import android.location.Location
+import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.AndroidViewModel
@@ -23,6 +24,9 @@ import java.util.Locale
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filterNotNull
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.messaging.ktx.messaging
+
 
 
 class MainViewModel(
@@ -32,6 +36,10 @@ class MainViewModel(
     private val geocodingService: GeocodingService,
     private val geofenceHelperClass: GeofenceHelper // Injete o GeofenceHelper
 ) : AndroidViewModel(application) {
+
+    companion object {
+        private const val TAG = "FirebaseRepository" // Definição do TAG aqui
+    }
 
     private val _showExitNotificationEvent = MutableSharedFlow<String>()
     val showExitNotificationEvent = _showExitNotificationEvent.asSharedFlow()
@@ -283,6 +291,29 @@ class MainViewModel(
                 _isLoading.postValue(false) // Garante que isLoading seja definido como false se não houver ID de usuário
                 _error.postValue("Não é possível salvar o registro de localização: ID do usuário ausente.")
             }
+        }
+    }
+
+    fun retrieveAndSaveFcmToken(userId: String) {
+        Firebase.messaging.token.addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                Log.w(TAG, "Fetching FCM registration token failed", task.exception)
+                return@addOnCompleteListener
+            }
+
+            // Obter novo token de registro FCM
+            val token = task.result
+            Log.d(TAG, "FCM Token: $token")
+
+            // Salve este token no Firestore associado ao userId do pai
+            // Exemplo (você precisará da sua implementação do FirebaseRepository):
+            // firebaseRepository.saveUserFcmToken(userId, token) { success ->
+            //     if (success) {
+            //         Log.d(TAG, "FCM token saved to Firestore for user $userId")
+            //     } else {
+            //         Log.w(TAG, "Failed to save FCM token for user $userId")
+            //     }
+            // }
         }
     }
 }

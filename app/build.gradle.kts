@@ -68,6 +68,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview:1.6.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
+    implementation(libs.firebase.inappmessaging.display)
     debugImplementation("androidx.compose.ui:ui-tooling:1.6.1")
     debugImplementation("androidx.compose.ui:ui-test-manifest:1.6.1")
 
@@ -88,6 +89,7 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx")
+    implementation("com.google.firebase:firebase-analytics-ktx")
 
     // FusedLocationProviderClient
     implementation("com.google.android.gms:play-services-location:21.1.0")

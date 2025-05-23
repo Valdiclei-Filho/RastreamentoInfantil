@@ -1,9 +1,11 @@
 package com.example.rastreamentoinfantil.repository
 
+import android.util.Log
 import com.example.rastreamentoinfantil.model.Coordinate
 import com.example.rastreamentoinfantil.model.LocationRecord
 import com.example.rastreamentoinfantil.model.User
 import com.example.rastreamentoinfantil.model.Geofence
+import com.example.rastreamentoinfantil.model.NotificationHistoryEntry
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.auth.FirebaseAuth
@@ -13,6 +15,9 @@ class FirebaseRepository {
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
 
+    companion object {
+        private const val TAG = "FirebaseRepository" // Definição do TAG aqui
+    }
 
     // Métodos para autenticação
     fun getCurrentUser(): FirebaseUser? {
@@ -197,5 +202,34 @@ class FirebaseRepository {
         } else {
             callback(null)
         }
+    }
+
+    fun saveNotificationToHistory(userId: String, notificationEntry: NotificationHistoryEntry, onComplete: (Boolean) -> Unit) {
+        firestore.collection("users").document(userId)
+            .collection("notificationHistory").document(notificationEntry.id)
+            .set(notificationEntry)
+            .addOnSuccessListener {
+                Log.d(TAG, "Notification saved to history for user $userId")
+                onComplete(true)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error saving notification to history for user $userId", e)
+                onComplete(false)
+            }
+    }
+
+    fun getNotificationHistory(userId: String, onComplete: (List<NotificationHistoryEntry>) -> Unit) {
+        firestore.collection("users").document(userId)
+            .collection("notificationHistory")
+            .orderBy("timestamp", Query.Direction.DESCENDING) // Mais recentes primeiro
+            .get()
+            .addOnSuccessListener { documents ->
+                val historyList = documents.mapNotNull { it.toObject(NotificationHistoryEntry::class.java) }
+                onComplete(historyList)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Error fetching notification history", e)
+                onComplete(emptyList())
+            }
     }
 }

@@ -30,7 +30,7 @@ import java.util.UUID // Para gerar IDs de geofence temporários/novos
 @Composable
 fun MapScreen(
     modifier: Modifier = Modifier,
-    mainViewModel: MainViewModel = viewModel()
+    mainViewModel: MainViewModel
 ) {
     val currentLocation by mainViewModel.currentLocation.collectAsState()
     val currentGeofence by mainViewModel.geofenceArea.collectAsState()

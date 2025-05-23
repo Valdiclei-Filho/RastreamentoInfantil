@@ -17,11 +17,16 @@ import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.Flow
+import android.util.Log
 
 class LocationService(private val context: Context) {
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
+
+    companion object {
+        private const val TAG = "FirebaseRepository" // Definição do TAG aqui
+    }
 
     init {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)

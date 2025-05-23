@@ -117,6 +117,8 @@ class MainActivity : ComponentActivity(){
             }
         }
 
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -148,7 +150,7 @@ class MainActivity : ComponentActivity(){
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MapScreen()
+                    Navigation(activity = this, mainViewModel = mainViewModel)
                 }
             }
         }
