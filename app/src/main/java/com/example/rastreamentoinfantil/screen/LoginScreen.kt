@@ -41,7 +41,7 @@ fun LoginScreen(
     LaunchedEffect(user) {
         user?.let {
             when (it.type) {
-                null, "responsavel" -> navController.navigate("main") {
+                null, "responsavel" -> navController.navigate("mapscreen") {
                     popUpTo("login") { inclusive = true }
                 }
                 "crianca" -> navController.navigate("child") {

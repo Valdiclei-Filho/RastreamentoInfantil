@@ -1,29 +1,33 @@
 package com.example.rastreamentoinfantil.viewmodel
 
+import androidx.lifecycle.viewModelScope
+import com.google.android.gms.maps.model.LatLng
+import kotlinx.coroutines.launch
 import android.app.Application
 import android.location.Location
+import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
 import com.example.rastreamentoinfantil.model.Geofence
 import com.example.rastreamentoinfantil.model.LocationRecord
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
 import com.example.rastreamentoinfantil.service.GeocodingService
 import com.example.rastreamentoinfantil.helper.GeofenceHelper // Certifique-se que o nome da classe é GeofenceHelper
 import com.example.rastreamentoinfantil.service.LocationService
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.messaging.ktx.messaging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filterNotNull
-
+import com.example.rastreamentoinfantil.model.Route // Importe o modelo Route
 
 class MainViewModel(
     application: Application,
@@ -32,6 +36,13 @@ class MainViewModel(
     private val geocodingService: GeocodingService,
     private val geofenceHelperClass: GeofenceHelper // Injete o GeofenceHelper
 ) : AndroidViewModel(application) {
+
+    companion object {
+        private const val TAG = "FirebaseRepository" // Definição do TAG aqui
+    }
+
+    private val _directionsPolyline = MutableStateFlow<List<LatLng>>(emptyList())
+    val directionsPolyline: StateFlow<List<LatLng>> = _directionsPolyline.asStateFlow()
 
     private val _showExitNotificationEvent = MutableSharedFlow<String>()
     val showExitNotificationEvent = _showExitNotificationEvent.asSharedFlow()
@@ -51,6 +62,23 @@ class MainViewModel(
     private val _locationRecords = MutableLiveData<List<LocationRecord>>()
     val locationRecords: LiveData<List<LocationRecord>> get() = _locationRecords
 
+    private val _routes = MutableStateFlow<List<Route>>(emptyList())
+    val routes: StateFlow<List<Route>> = _routes.asStateFlow()
+
+    private val _isLoadingRoutes = MutableStateFlow<Boolean>(false)
+    val isLoadingRoutes: StateFlow<Boolean> = _isLoadingRoutes.asStateFlow()
+
+    sealed interface RouteOperationStatus {
+        data class Success(val message: String) : RouteOperationStatus
+        data class Error(val errorMessage: String) : RouteOperationStatus
+        object Loading : RouteOperationStatus
+        object Idle : RouteOperationStatus // Estado inicial ou após conclusão
+    }
+    private val _routeOperationStatus = MutableStateFlow<RouteOperationStatus>(RouteOperationStatus.Idle)
+    val routeOperationStatus: StateFlow<RouteOperationStatus> = _routeOperationStatus.asStateFlow()
+
+    private val _selectedRoute = MutableStateFlow<Route?>(null)
+    val selectedRoute: StateFlow<Route?> = _selectedRoute.asStateFlow()
     // Este LiveData pode ser derivado de _isUserInsideGeofence se a lógica for a mesma
     // ou pode ter sua própria lógica se "fora de rota" for diferente de "fora da geofence circular"
     private val _isLocationOutOfGeofence = MutableLiveData<Boolean>() // Renomeado para clareza
@@ -126,27 +154,47 @@ class MainViewModel(
     }
 
     private fun loadUserGeofence(userId: String) {
-        firebaseRepository.getUserGeofence(userId) { geofenceFromFirebase ->
-            // Atualiza o StateFlow _geofenceArea com a geofence do Firebase
-            _geofenceArea.value = geofenceFromFirebase
-            _isLoading.value = false // Mover para cá ou após loadLocationRecords
-
-            if (geofenceFromFirebase != null) {
-                println("Geofence carregada do Firebase para o usuário $userId: $geofenceFromFirebase")
-            } else {
-                println("Nenhuma geofence encontrada no Firebase para o usuário $userId.")
+        firebaseRepository.getUserActiveGeofence(userId) { geofenceFromFirebase, exception -> // DOIS parâmetros
+            if (exception != null) {
+                _error.value = "Erro ao carregar geofence: ${exception.message}"
+                _isLoading.value = false // Certifique-se de parar o loading
+                return@getUserActiveGeofence
             }
-            loadLocationRecords() // Carregar registros de localização após tentar carregar a geofence
+
+            // Se exception for null, geofenceFromFirebase pode ser a geofence ou null se não encontrada
+            _geofenceArea.value = geofenceFromFirebase
+            _isLoading.value = false
+            if (geofenceFromFirebase != null) {
+                println("Geofence carregada: $geofenceFromFirebase")
+            } else {
+                println("Nenhuma geofence encontrada.")
+            }
+            loadLocationRecords()
         }
     }
 
     private fun loadLocationRecords() {
         currentUserId?.let { userId ->
-            // _isLoading.value = true; // Já definido em loadUserIdAndGeofence ou loadUserGeofence
-            firebaseRepository.getUserLocationRecords(userId) { records ->
-                _locationRecords.postValue(records)
-                // _isLoading.value = false; // Deve ser definido após todas as operações de carregamento inicial
+            // Considere definir _isLoading.value = true aqui se esta é uma operação de carregamento independente
+            firebaseRepository.getUserLocationRecords(userId) { records, exception ->
+                // _isLoading.value = false; // Defina isLoading aqui após a operação completar
+                if (exception != null) {
+                    _error.value = "Erro ao carregar registros de localização: ${exception.message}"
+                    // Mesmo em caso de erro, você pode querer limpar os registros existentes ou postar uma lista vazia
+                    _locationRecords.postValue(emptyList())
+                    return@getUserLocationRecords
+                }
+
+                // Se exception for null, 'records' pode ser a lista de dados ou null (se não houver registros)
+                // Usamos o operador elvis (?:) para fornecer uma lista vazia se 'records' for nulo.
+                _locationRecords.postValue(records ?: emptyList()) // CORRIGIDO AQUI
             }
+        } ?: run {
+            // Se não houver ID de usuário, poste uma lista vazia ou trate o erro conforme necessário
+            _locationRecords.postValue(emptyList())
+            _error.value = "ID do usuário não disponível para carregar registros de localização."
+            // _isLoading.value = false; // Certifique-se que o loading é parado
+            Log.w(TAG, "loadLocationRecords chamado sem currentUserId.")
         }
     }
 
@@ -157,18 +205,17 @@ class MainViewModel(
         currentUserId?.let { userId ->
             if (newGeofence != null) {
                 _isLoading.value = true
-                firebaseRepository.saveUserGeofence(userId, newGeofence) { success ->
+                firebaseRepository.saveUserActiveGeofence(userId, newGeofence) { success, exception -> // DOIS parâmetros
                     _isLoading.value = false
                     if (success) {
                         println("Geofence salva no Firebase para o usuário $userId.")
                     } else {
-                        _error.value = "Falha ao salvar geofence no Firebase."
-                        // Opcional: Reverter _geofenceArea.value para o valor anterior se o salvamento falhar?
+                        _error.value = "Falha ao salvar geofence: ${exception?.message ?: "Erro desconhecido"}"
                     }
                 }
             } else { // Se newGeofence for null, significa que estamos limpando a geofence
                 _isLoading.value = true
-                firebaseRepository.deleteUserGeofence(userId) { success ->
+                firebaseRepository.deleteUserActiveGeofence(userId) { success, exception ->
                     _isLoading.value = false
                     if (success) {
                         println("Geofence removida do Firebase para o usuário $userId.")
@@ -227,7 +274,7 @@ class MainViewModel(
             )
 
             currentUserId?.let { userId ->
-                firebaseRepository.saveLocationRecord(locationRecord, userId) { success ->
+                firebaseRepository.saveLocationRecord(locationRecord, userId) { success, exception ->
                     if (success) {
                         loadLocationRecords() // Ou atualize a lista localmente
                     } else {
@@ -266,7 +313,7 @@ class MainViewModel(
             )
 
             currentUserId?.let { userId ->
-                firebaseRepository.saveLocationRecord(locationRecord, userId) { success ->
+                firebaseRepository.saveLocationRecord(locationRecord, userId) { success, exception ->
                     if (success) {
                         // Não precisa chamar loadLocationRecords() aqui a menos que você queira
                         // recarregar todos os registros a cada novo ponto salvo.
@@ -284,5 +331,118 @@ class MainViewModel(
                 _error.postValue("Não é possível salvar o registro de localização: ID do usuário ausente.")
             }
         }
+    }
+
+    fun retrieveAndSaveFcmToken(userId: String) {
+        Firebase.messaging.token.addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                Log.w(TAG, "Fetching FCM registration token failed", task.exception)
+                return@addOnCompleteListener
+            }
+
+            // Obter novo token de registro FCM
+            val token = task.result
+            Log.d(TAG, "FCM Token: $token")
+
+            // Salve este token no Firestore associado ao userId do pai
+            // Exemplo (você precisará da sua implementação do FirebaseRepository):
+            // firebaseRepository.saveUserFcmToken(userId, token) { success ->
+            //     if (success) {
+            //         Log.d(TAG, "FCM token saved to Firestore for user $userId")
+            //     } else {
+            //         Log.w(TAG, "Failed to save FCM token for user $userId")
+            //     }
+            // }
+        }
+    }
+    fun loadUserRoutes(userId: String) {
+        viewModelScope.launch {
+            _isLoadingRoutes.value = true
+            firebaseRepository.getUserRoutes(userId) { routesResult, exception ->
+                _isLoadingRoutes.value = false
+                if (exception != null) {
+                    _routes.value = emptyList() // Mantenha como está
+                    _error.value = "Falha ao carregar rotas: ${exception.message}"
+                    Log.e(TAG, "Erro ao carregar rotas para o usuário $userId", exception)
+                } else {
+                    // Filtra rotas que possam ter ID nulo (embora não devesse acontecer)
+                    _routes.value = routesResult?.filter { it.id != null } ?: emptyList()
+                    Log.d(TAG, "Rotas carregadas para o usuário $userId: ${_routes.value.size} rotas válidas")
+                }
+            }
+        }
+    }
+    fun addOrUpdateRoute(route: Route) {
+        currentUserId?.let { userId ->
+            viewModelScope.launch {
+                _routeOperationStatus.value = RouteOperationStatus.Loading
+                firebaseRepository.saveRoute(userId, route) { routeId, exception -> // routeId é String?, exception é Exception?
+                    Log.d(TAG, "Usuario id desgracado: $userId")
+                    if (exception != null) {
+                        _routeOperationStatus.value = RouteOperationStatus.Error(exception.message ?: "Falha ao salvar rota.")
+                        Log.e(TAG, "Erro ao salvar rota ${route.id} para o usuário $userId", exception)
+                    } else if (routeId != null) { // Sucesso se routeId não for nulo
+                        _routeOperationStatus.value = RouteOperationStatus.Success("Rota salva com sucesso!")
+                        loadUserRoutes(userId) // Recarregar rotas após salvar
+                    } else {
+                        // Caso inesperado: exception é null mas routeId também é null (não deveria acontecer com a lógica atual do repo)
+                        _routeOperationStatus.value = RouteOperationStatus.Error("Falha desconhecida ao salvar rota.")
+                        Log.e(TAG, "Erro desconhecido ao salvar rota ${route.id} para o usuário $userId")
+                    }
+                }
+            }
+        } ?: run {
+            _routeOperationStatus.value = RouteOperationStatus.Error("Usuário não logado. Não é possível salvar a rota.")
+            Log.w(TAG, "Tentativa de salvar rota sem usuário logado.")
+        }
+    }
+    fun deleteRoute(routeId: String) {
+        currentUserId?.let { userId ->
+            viewModelScope.launch {
+                _routeOperationStatus.value = RouteOperationStatus.Loading
+                firebaseRepository.deleteRoute(userId, routeId) { success, exception ->
+                    if (success) {
+                        _routeOperationStatus.value = RouteOperationStatus.Success("Rota removida com sucesso!")
+                        loadUserRoutes(userId) // Recarregar rotas após deletar
+                        if (_selectedRoute.value?.id == routeId) { // Limpar rota selecionada se for a deletada
+                            _selectedRoute.value = null
+                        }
+                    } else {
+                        _routeOperationStatus.value = RouteOperationStatus.Error(exception?.message ?: "Falha ao remover rota.")
+                        Log.e(TAG, "Erro ao deletar rota $routeId para o usuário $userId", exception)
+                    }
+                }
+            }
+        } ?: run {
+            _routeOperationStatus.value = RouteOperationStatus.Error("Usuário não logado. Não é possível remover a rota.")
+            Log.w(TAG, "Tentativa de deletar rota $routeId sem usuário logado.")
+        }
+    }
+
+    fun loadRouteDetails(routeId: String) {
+        currentUserId?.let { userId ->
+            _isLoading.value = true // Ou um isLoading específico para detalhes da rota
+            firebaseRepository.getRouteById(userId, routeId) { route, exception ->
+                _isLoading.value = false
+                if (exception != null) {
+                    _error.value = "Falha ao carregar detalhes da rota: ${exception.message}"
+                    _selectedRoute.value = null
+                    Log.e(TAG, "Erro ao carregar rota $routeId", exception)
+                } else {
+                    _selectedRoute.value = route // route pode ser nulo se não encontrado
+                    if (route == null) {
+                        _error.value = "Rota não encontrada."
+                        Log.w(TAG, "Rota $routeId não encontrada para usuário $userId")
+                    }
+                }
+            }
+        } ?: run {
+            _error.value = "Usuário não logado para carregar detalhes da rota."
+            _selectedRoute.value = null
+        }
+    }
+
+    fun clearRouteOperationStatus() {
+        _routeOperationStatus.value = RouteOperationStatus.Idle
     }
 }

@@ -1,5 +1,10 @@
 package com.example.rastreamentoinfantil.screen
 
+import android.util.Log
+import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.maps.android.compose.*
+import com.google.firebase.auth.FirebaseAuth // Para obter o userId
 import androidx.compose.foundation.layout.Box // Adicionado para sobrepor controles
 import androidx.compose.foundation.layout.Column // Adicionado para organizar controles
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.BitmapDescriptorFactory // Para ícones de marcador personalizados
 import com.google.android.gms.maps.model.CameraPosition
@@ -25,22 +31,33 @@ import com.google.maps.android.compose.*
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 import com.example.rastreamentoinfantil.model.Coordinate
 import com.example.rastreamentoinfantil.model.Geofence
+import com.example.rastreamentoinfantil.screen.AppDestinations.ROUTE_LIST_SCREEN
 import java.util.UUID // Para gerar IDs de geofence temporários/novos
 
 @Composable
 fun MapScreen(
     modifier: Modifier = Modifier,
-    mainViewModel: MainViewModel = viewModel()
+    mainViewModel: MainViewModel = viewModel(),
+    navController: NavHostController
 ) {
     val currentLocation by mainViewModel.currentLocation.collectAsState()
     val currentGeofence by mainViewModel.geofenceArea.collectAsState()
     val isInsideGeofence by mainViewModel.isUserInsideGeofence.collectAsState()
 
-    // Estados para a edição da geofence
+    val currentUserId = remember { FirebaseAuth.getInstance().currentUser?.uid }
+
+    val routes by mainViewModel.routes.collectAsStateWithLifecycle()
+    val isLoadingRoutes by mainViewModel.isLoadingRoutes.collectAsStateWithLifecycle()
+
+    LaunchedEffect(currentUserId) {
+        if (currentUserId != null) {
+            mainViewModel.loadUserRoutes(currentUserId)
+        }
+    }
+
     var newGeofenceCenter by remember { mutableStateOf<LatLng?>(null) }
     var newGeofenceRadius by remember { mutableStateOf(currentGeofence?.radius ?: 100f) } // Inicializa com o raio atual ou um padrão
     var isEditingGeofence by remember { mutableStateOf(false) } // Para controlar a visibilidade dos controles de edição
-
 
     val defaultLocation = LatLng(-23.550520, -46.633308) // São Paulo como padrão
     val initialZoom = 15f
@@ -84,6 +101,46 @@ fun MapScreen(
                 }
             }
         ) {
+            routes.forEach { route ->
+                val routePoints = mutableListOf<LatLng>()
+
+                route.origin?.let { routePoints.add(LatLng(it.latitude, it.longitude)) }
+                route.waypoints?.forEach { waypoint ->
+                    routePoints.add(LatLng(waypoint.latitude, waypoint.longitude))
+                }
+                route.destination?.let { routePoints.add(LatLng(it.latitude, it.longitude)) }
+
+                if (routePoints.size >= 2) { // Precisa de pelo menos 2 pontos para desenhar uma linha
+                    Polyline(
+                        points = routePoints,
+                        color = if (route.isActive) Color.Blue else Color.Gray, // Cor diferente para rotas ativas/inativas
+                        width = 8f, // Largura da linha
+                        clickable = true, // Permite cliques na polyline, se necessário
+                        onClick = {
+                            // Ação ao clicar na rota, por exemplo, mostrar o nome da rota
+                            // ou navegar para detalhes da rota.
+                            Log.d("MapScreen", "Rota clicada: ${route.name}")
+                            // Você pode querer mover a câmera para focar nesta rota
+                            // ou mostrar um InfoWindow (que precisa de um Marker)
+                        }
+                    )
+
+                    // Adicionar marcadores para origem e destino (opcional)
+                    route.origin?.let {
+                        Marker(
+                            state = MarkerState(position = LatLng(it.latitude, it.longitude)),
+                            title = "${route.name} - Origem"
+                        )
+                    }
+                    route.destination?.let {
+                        Marker(
+                            state = MarkerState(position = LatLng(it.latitude, it.longitude)),
+                            title = "${route.name} - Destino"
+                        )
+                    }
+                }
+            }
+
             // Marcador para a localização atual do usuário
             currentLocation?.let { location ->
                 val userLatLng = LatLng(location.latitude, location.longitude)
@@ -210,6 +267,9 @@ fun MapScreen(
                 }) {
                     Text(if (currentGeofence == null) "Definir Nova Geofence" else "Editar Geofence")
                 }
+            }
+            Button(onClick = { navController.navigate(ROUTE_LIST_SCREEN) }) { // Você precisará do navController aqui
+                Text("Gerenciar Rotas")
             }
         }
     }

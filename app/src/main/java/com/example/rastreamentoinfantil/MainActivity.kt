@@ -148,7 +148,7 @@ class MainActivity : ComponentActivity(){
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MapScreen()
+                    Navigation(activity = this, mainViewModel = mainViewModel)
                 }
             }
         }

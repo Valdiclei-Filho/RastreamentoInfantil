@@ -15,7 +15,7 @@ class MainViewModelFactory(
     private val firebaseRepository: FirebaseRepository,
     private val locationService: LocationService,
     private val geocodingService: GeocodingService,
-    private val geofenceHelper: com.example.rastreamentoinfantil.helper.GeofenceHelper
+    private val geofenceHelper: GeofenceHelper
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {

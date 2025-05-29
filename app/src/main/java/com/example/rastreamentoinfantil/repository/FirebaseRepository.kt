@@ -1,201 +1,433 @@
 package com.example.rastreamentoinfantil.repository
 
-import com.example.rastreamentoinfantil.model.Coordinate
+import android.util.Log
 import com.example.rastreamentoinfantil.model.LocationRecord
 import com.example.rastreamentoinfantil.model.User
 import com.example.rastreamentoinfantil.model.Geofence
+import com.example.rastreamentoinfantil.model.NotificationHistoryEntry
+import com.example.rastreamentoinfantil.model.Route
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.SetOptions
 
 class FirebaseRepository {
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
 
+    companion object {
+        private const val TAG = "FirebaseRepository"
+        private const val USERS_COLLECTION = "users"
+        private const val LOCATION_RECORDS_COLLECTION = "locationRecords"
+        private const val NOTIFICATION_HISTORY_COLLECTION = "notificationHistory"
+        private const val ACTIVE_GEOFENCE_COLLECTION = "activeGeofence"
+        private const val ACTIVE_GEOFENCE_DETAILS_DOC = "details"
+        private const val ROUTES_COLLECTION = "routes"
+    }
 
-    // Métodos para autenticação
     fun getCurrentUser(): FirebaseUser? {
         return auth.currentUser
     }
 
     fun createUser(user: User, password: String, callback: (Boolean, String?) -> Unit) {
+        if (user.email.isNullOrEmpty()) {
+            Log.w(TAG, "createUser: Email do usuário não pode ser nulo ou vazio.")
+            callback(false, "Email inválido.")
+            return
+        }
+
         auth.createUserWithEmailAndPassword(user.email!!, password)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
                     val firebaseUser = auth.currentUser
                     firebaseUser?.let {
-                        val userData = hashMapOf(
-                            "id" to it.uid,
-                            "nomeCompleto" to user.name,
-                            "email" to user.email,
-                            "tipo" to null
-                        )
-
-                        firestore.collection("users").document(it.uid)
-                            .set(userData)
+                        firestore.collection(USERS_COLLECTION).document(it.uid)
+                            .set(user)
                             .addOnSuccessListener {
+                                Log.d(TAG, "Usuário criado com sucesso no Firestore: ${firebaseUser.uid}")
                                 callback(true, null)
                             }
                             .addOnFailureListener { e ->
-                                callback(false, e.message)
+                                Log.e(TAG, "Falha ao salvar dados do usuário ${it.uid} no Firestore.", e)
+                                callback(false, "Erro ao salvar dados do usuário: ${e.message}")
                             }
+                    } ?: run {
+                        Log.e(TAG, "Falha ao obter usuário atual após criação (inesperado).")
+                        callback(false, "Falha ao obter usuário atual após criação.")
                     }
                 } else {
-                    callback(false, task.exception?.message)
+                    Log.w(TAG, "Falha ao criar usuário na Auth", task.exception)
+                    callback(false, task.exception?.message ?: "Erro desconhecido na criação do usuário.")
                 }
             }
     }
 
-
     fun signIn(email: String, password: String, callback: (Boolean, String?) -> Unit) {
+        if (email.isEmpty() || password.isEmpty()) {
+            Log.w(TAG, "signIn: Email ou senha vazios.")
+            callback(false, "Email e senha são obrigatórios.")
+            return
+        }
         auth.signInWithEmailAndPassword(email, password)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
-                    callback(true, null) // Sucesso no login
+                    Log.i(TAG, "Login bem-sucedido para o email: $email (Usuário: ${auth.currentUser?.uid})")
+                    callback(true, null)
                 } else {
-                    callback(false, task.exception?.message) // Falha no login
+                    Log.w(TAG, "Falha no login para o email: $email", task.exception)
+                    callback(false, task.exception?.message ?: "Falha no login.")
                 }
             }
     }
 
     fun signOut() {
+        val userId = auth.currentUser?.uid
         auth.signOut()
+        Log.i(TAG, "Usuário deslogado: $userId")
     }
-
-    // Métodos para salvar, obter e atualizar dados no Firestore
-    fun saveLocationRecord(record: LocationRecord, userId: String, callback: (Boolean) -> Unit) {
-        firestore.collection("users").document(userId).collection("locationRecords")
+        fun saveLocationRecord(record: LocationRecord, userId: String, callback: (Boolean, Exception?) -> Unit) {
+        if (userId.isEmpty()) {
+            Log.w(TAG, "saveLocationRecord: userId está vazio.")
+            callback(false, IllegalArgumentException("userId está vazio."))
+            return
+        }
+        firestore.collection(USERS_COLLECTION).document(userId).collection(LOCATION_RECORDS_COLLECTION)
             .add(record)
-            .addOnSuccessListener {
-                callback(true) // Sucesso ao salvar o registro
-            }
-            .addOnFailureListener {
-                callback(false) // Falha ao salvar o registro
-            }
-    }
-
-    fun getUserLocationRecords(userId: String, callback: (List<LocationRecord>) -> Unit) {
-        firestore.collection("users").document(userId).collection("locationRecords")
-            .orderBy("dateTime", Query.Direction.DESCENDING)
-            .get()
-            .addOnSuccessListener { result ->
-                val records =
-                    result.documents.mapNotNull { it.toObject(LocationRecord::class.java) }
-                callback(records) // Devolve a lista de registros
-            }
-            .addOnFailureListener {
-                callback(emptyList()) // Em caso de falha, devolve uma lista vazia
-            }
-    }
-
-    fun saveGeofence(geofence: Geofence, userId: String, onComplete: (Boolean) -> Unit) {
-        firestore.collection("users")
-            .document(userId)
-            .collection("geofence") // Armazenar geofence em uma subcoleção
-            .document("user_geofence") // Ou usar um ID único se vários geofences por usuário
-            .set(geofence)
-            .addOnSuccessListener {
-                onComplete(true)
+            .addOnSuccessListener { documentReference ->
+                Log.d(TAG, "Registro de localização salvo com ID: ${documentReference.id} para o usuário $userId")
+                callback(true, null)
             }
             .addOnFailureListener { e ->
-                // Logar o erro: Log.e("FirebaseRepository", "Erro ao salvar geofence", e)
-                onComplete(false)
+                Log.e(TAG, "Falha ao salvar registro de localização para o usuário $userId", e)
+                callback(false, e)
             }
     }
 
-    fun saveUserGeofence(userId: String, geofence: Geofence, onComplete: (Boolean) -> Unit) {
-        val geofenceData = hashMapOf(
-            "id" to geofence.id,
-            "name" to geofence.name, // Salva o nome
-            "radius" to geofence.radius,
-            // Salva as coordenadas como um mapa aninhado ou campos separados
-            "coordinate_latitude" to geofence.coordinates.latitude,
-            "coordinate_longitude" to geofence.coordinates.longitude
-            // Alternativamente, como um mapa aninhado:
-            // "coordinates" to hashMapOf(
-            //     "latitude" to geofence.coordinates.latitude,
-            //     "longitude" to geofence.coordinates.longitude
-            // )
-        )
-
-        firestore.collection("users").document(userId).collection("activeGeofence")
-            .document("details")
-            .set(geofenceData)
-            .addOnSuccessListener { onComplete(true) }
-            .addOnFailureListener {
-                // Log.e("FirebaseRepo", "Erro ao salvar geofence", it)
-                onComplete(false)
+    fun getUserLocationRecords(userId: String, callback: (List<LocationRecord>?, Exception?) -> Unit) {
+        if (userId.isEmpty()) {
+            Log.w(TAG, "getUserLocationRecords: userId está vazio.")
+            callback(null, IllegalArgumentException("userId está vazio."))
+            return
+        }
+        firestore.collection(USERS_COLLECTION).document(userId).collection(LOCATION_RECORDS_COLLECTION)
+            .orderBy("dateTime", Query.Direction.DESCENDING)
+            .limit(100)
+            .get()
+            .addOnSuccessListener { result ->
+                val records = result.documents.mapNotNull { document ->
+                    document.toObject(LocationRecord::class.java)
+                }
+                Log.d(TAG, "Registros de localização obtidos para o usuário $userId: ${records.size} encontrados.")
+                callback(records, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Falha ao obter registros de localização para o usuário $userId", e)
+                callback(null, e)
             }
     }
 
-    fun getUserGeofence(userId: String, onComplete: (Geofence?) -> Unit) {
-        firestore.collection("users").document(userId).collection("activeGeofence")
-            .document("details")
+    @Deprecated("Considerar remover ou refatorar para um propósito claro se diferente de activeGeofence.")
+    fun saveLegacyGeofence(geofence: Geofence, userId: String, onComplete: (Boolean, Exception?) -> Unit) {
+        if (userId.isEmpty()) {
+            Log.w(TAG, "saveLegacyGeofence: userId está vazio.")
+            onComplete(false, IllegalArgumentException("userId está vazio."))
+            return
+        }
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection("geofence")
+            .document("user_geofence")
+            .set(geofence)
+            .addOnSuccessListener {
+                Log.d(TAG, "Geofence LEGADA salva para o usuário $userId")
+                onComplete(true, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao salvar geofence LEGADA para o usuário $userId", e)
+                onComplete(false, e)
+            }
+    }
+
+    fun saveUserActiveGeofence(userId: String, geofence: Geofence, onComplete: (Boolean, Exception?) -> Unit) {
+        if (userId.isEmpty()) {
+            Log.w(TAG, "saveUserActiveGeofence: userId está vazio.")
+            onComplete(false, IllegalArgumentException("userId está vazio."))
+            return
+        }
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(ACTIVE_GEOFENCE_COLLECTION)
+            .document(ACTIVE_GEOFENCE_DETAILS_DOC)
+            .set(geofence, SetOptions.merge())
+            .addOnSuccessListener {
+                Log.d(TAG, "Geofence ativa salva/atualizada para o usuário $userId. ID da Geofence: ${geofence.id}")
+                onComplete(true, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao salvar/atualizar geofence ativa para o usuário $userId", e)
+                onComplete(false, e)
+            }
+    }
+
+    fun getUserActiveGeofence(userId: String, onComplete: (Geofence?, Exception?) -> Unit) {
+        if (userId.isEmpty()) {
+            Log.w(TAG, "getUserActiveGeofence: userId está vazio.")
+            onComplete(null, IllegalArgumentException("userId está vazio."))
+            return
+        }
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(ACTIVE_GEOFENCE_COLLECTION)
+            .document(ACTIVE_GEOFENCE_DETAILS_DOC)
             .get()
             .addOnSuccessListener { document ->
                 if (document != null && document.exists()) {
                     try {
-                        val id = document.getString("id")
-                        val name = document.getString("name") // Carrega o nome
-                        val radius = document.getDouble("radius")?.toFloat()
-
-                        // Carrega as coordenadas
-                        val latitude = document.getDouble("coordinate_latitude")
-                        val longitude = document.getDouble("coordinate_longitude")
-
-                        if (latitude != null && longitude != null && radius != null) {
-                            val loadedCoordinates =
-                                Coordinate(latitude = latitude, longitude = longitude)
-                            val geofence = Geofence(
-                                id = id,
-                                name = name,
-                                radius = radius,
-                                coordinates = loadedCoordinates
-                            )
-                            onComplete(geofence)
+                        val geofence = document.toObject(Geofence::class.java)
+                        if (geofence != null) {
+                            Log.d(TAG, "Geofence ativa obtida para o usuário $userId: ${geofence.name} (ID: ${geofence.id})")
+                            onComplete(geofence, null)
                         } else {
-                            // Log.w("FirebaseRepo", "Dados de geofence incompletos do Firestore")
-                            onComplete(null)
+                            Log.w(TAG, "Falha ao converter documento para Geofence para o usuário $userId. Documento: ${document.data}")
+                            onComplete(null, Exception("Falha ao converter dados da geofence."))
                         }
                     } catch (e: Exception) {
-                        // Log.e("FirebaseRepo", "Erro ao parsear geofence do Firestore", e)
-                        onComplete(null)
+                        Log.e(TAG, "Erro ao parsear geofence ativa do Firestore para o usuário $userId", e)
+                        onComplete(null, e)
                     }
                 } else {
-                    // Log.d("FirebaseRepo", "Nenhum documento de geofence encontrado para o usuário $userId")
-                    onComplete(null)
+                    Log.d(TAG, "Nenhum documento de geofence ativa encontrado para o usuário $userId")
+                    onComplete(null, null)
                 }
             }
-            .addOnFailureListener {
-                // Log.e("FirebaseRepo", "Erro ao buscar geofence do Firestore", it)
-                onComplete(null)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao buscar geofence ativa do Firestore para o usuário $userId", e)
+                onComplete(null, e)
             }
     }
 
-    fun deleteUserGeofence(userId: String, onComplete: (Boolean) -> Unit) {
-        firestore.collection("users").document(userId).collection("activeGeofence")
-            .document("details")
-            .delete()
-            .addOnSuccessListener { onComplete(true) }
-            .addOnFailureListener { onComplete(false) }
-    }
-
-    fun fetchUserData(callback: (User?) -> Unit) {
-        val userId = FirebaseAuth.getInstance().currentUser?.uid
-        if (userId != null) {
-            FirebaseFirestore.getInstance().collection("users")
-                .document(userId)
-                .get()
-                .addOnSuccessListener { document ->
-                    val user = document.toObject(User::class.java)
-                    callback(user)
-                }
-                .addOnFailureListener {
-                    callback(null)
-                }
-        } else {
-            callback(null)
+    fun deleteUserActiveGeofence(userId: String, onComplete: (Boolean, Exception?) -> Unit) {
+        if (userId.isEmpty()) {
+            Log.w(TAG, "deleteUserActiveGeofence: userId está vazio.")
+            onComplete(false, IllegalArgumentException("userId está vazio."))
+            return
         }
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(ACTIVE_GEOFENCE_COLLECTION)
+            .document(ACTIVE_GEOFENCE_DETAILS_DOC)
+            .delete()
+            .addOnSuccessListener {
+                Log.d(TAG, "Geofence ativa deletada para o usuário $userId")
+                onComplete(true, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao deletar geofence ativa para o usuário $userId", e)
+                onComplete(false, e)
+            }
+    }
+
+        fun fetchUserData(callback: (User?, Exception?) -> Unit) {
+        val currentFirebaseUser = auth.currentUser
+        if (currentFirebaseUser == null) {
+            Log.w(TAG, "fetchUserData: Usuário não logado.")
+            callback(null, IllegalStateException("Usuário não autenticado."))
+            return
+        }
+        val userId = currentFirebaseUser.uid
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .get()
+            .addOnSuccessListener { document ->
+                if (document != null && document.exists()) {
+                    val user = document.toObject(User::class.java)
+                     user?.id = document.id
+                    Log.d(TAG, "Dados do usuário $userId obtidos: ${user?.name}")
+                    callback(user, null)
+                } else {
+                    Log.w(TAG, "Nenhum documento de usuário encontrado no Firestore para o ID (Auth): $userId")
+                    callback(null, null)
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao buscar dados do usuário $userId", e)
+                callback(null, e)
+            }
+    }
+
+        fun saveNotificationToHistory(userId: String, notificationEntry: NotificationHistoryEntry, onComplete: (Boolean, Exception?) -> Unit) {
+        if (userId.isEmpty()) {
+            Log.w(TAG, "saveNotificationToHistory: userId está vazio.")
+            onComplete(false, IllegalArgumentException("userId está vazio."))
+            return
+        }
+
+        val entryId = notificationEntry.id ?: run {
+            Log.w(TAG, "saveNotificationToHistory: ID da entrada de notificação está vazio. Não será salvo.")
+            onComplete(false, IllegalArgumentException("ID da entrada de notificação não pode ser nulo."))
+            return
+        }
+
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(NOTIFICATION_HISTORY_COLLECTION).document(entryId)
+            .set(notificationEntry)
+            .addOnSuccessListener {
+                Log.d(TAG, "Notificação '$entryId' salva no histórico para o usuário $userId")
+                onComplete(true, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao salvar notificação '$entryId' no histórico para o usuário $userId", e)
+                onComplete(false, e)
+            }
+    }
+
+    fun getNotificationHistory(userId: String, onComplete: (List<NotificationHistoryEntry>?, Exception?) -> Unit) {
+        if (userId.isEmpty()) {
+            Log.w(TAG, "getNotificationHistory: userId está vazio.")
+            onComplete(null, IllegalArgumentException("userId está vazio."))
+            return
+        }
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(NOTIFICATION_HISTORY_COLLECTION)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .limit(50)
+            .get()
+            .addOnSuccessListener { documents ->
+                val historyList = documents.mapNotNull { document ->
+                    document.toObject(NotificationHistoryEntry::class.java)
+                     .apply { this.id = document.id }
+                }
+                Log.d(TAG, "Histórico de notificações obtido para o usuário $userId: ${historyList.size} entradas.")
+                onComplete(historyList, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao buscar histórico de notificações para o usuário $userId", e)
+                onComplete(null, e)
+            }
+    }
+
+        fun saveRoute(userId: String, route: Route, onComplete: (String?, Exception?) -> Unit) {
+        if (userId.isEmpty()) {
+            Log.w(TAG, "saveRoute: userId está vazio.")
+            onComplete(null, IllegalArgumentException("ID do usuário não fornecido."))
+            return
+        }
+
+        val routesCollection = firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(ROUTES_COLLECTION)
+
+        val task = if (route.id.isNullOrEmpty()) {
+            val newRouteRef = routesCollection.document()
+            val routeToSave = route.copy(id = newRouteRef.id)
+            newRouteRef.set(routeToSave).continueWith { routeToSave.id }
+        } else {
+            val routeToSave = route.copy(updatedAt = java.util.Date())
+            routesCollection.document(route.id!!).set(routeToSave, SetOptions.merge()).continueWith { route.id }
+        }
+
+        task.addOnSuccessListener { savedRouteId ->
+            Log.d(TAG, "Rota (ID: $savedRouteId) salva com sucesso para o usuário $userId.")
+            onComplete(savedRouteId, null)
+        }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao salvar rota '${route.name}' para o usuário $userId", e)
+                onComplete(null, e)
+            }
+    }
+
+    fun getUserRoutes(userId: String, onComplete: (List<Route>?, Exception?) -> Unit) {
+        if (userId.isEmpty()) {
+            Log.w(TAG, "getUserRoutes: userId está vazio.")
+            onComplete(null, IllegalArgumentException("userId está vazio."))
+            return
+        }
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(ROUTES_COLLECTION)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .get()
+            .addOnSuccessListener { documents ->
+                val routesList = documents.mapNotNull { document ->
+                    document.toObject(Route::class.java)?.apply {
+                        this.id = document.id
+                    }
+                }
+                Log.d(TAG, "Rotas obtidas para o usuário $userId: ${routesList.size} encontradas.")
+                onComplete(routesList, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao buscar rotas para o usuário $userId", e)
+                onComplete(null, e)
+            }
+    }
+
+    fun getRouteById(userId: String, routeId: String, onComplete: (Route?, Exception?) -> Unit) {
+        if (userId.isEmpty() || routeId.isEmpty()) {
+            Log.w(TAG, "getRouteById: userId ou routeId está vazio.")
+            onComplete(null, IllegalArgumentException("userId ou routeId está vazio."))
+            return
+        }
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(ROUTES_COLLECTION).document(routeId)
+            .get()
+            .addOnSuccessListener { document ->
+                if (document != null && document.exists()) {
+                    val route = document.toObject(Route::class.java)?.apply {
+                        this.id = document.id
+                    }
+                    if (route != null) {
+                        Log.d(TAG, "Rota (ID: $routeId) obtida para o usuário $userId: ${route.name}")
+                        onComplete(route, null)
+                    } else {
+                        Log.w(TAG, "Falha ao converter documento para Rota. ID: $routeId, Usuário: $userId. Documento: ${document.data}")
+                        onComplete(null, Exception("Falha ao converter dados da rota."))
+                    }
+                } else {
+                    Log.d(TAG, "Nenhuma rota encontrada com ID: $routeId para o usuário $userId")
+                    onComplete(null, null)
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao buscar rota (ID: $routeId) para o usuário $userId", e)
+                onComplete(null, e)
+            }
+    }
+
+    fun deleteRoute(userId: String, routeId: String, onComplete: (Boolean, Exception?) -> Unit) {
+        if (userId.isEmpty() || routeId.isEmpty()) {
+            Log.w(TAG, "deleteRoute: userId ou routeId está vazio.")
+            onComplete(false, IllegalArgumentException("userId ou routeId está vazio."))
+            return
+        }
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(ROUTES_COLLECTION).document(routeId)
+            .delete()
+            .addOnSuccessListener {
+                Log.d(TAG, "Rota (ID: $routeId) deletada com sucesso para o usuário $userId.")
+                onComplete(true, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao deletar rota (ID: $routeId) para o usuário $userId", e)
+                onComplete(false, e)
+            }
+    }
+
+    fun setRouteActiveStatus(userId: String, routeId: String, isActive: Boolean, onComplete: (Boolean, Exception?) -> Unit) {
+        if (userId.isEmpty() || routeId.isEmpty()) {
+            onComplete(false, IllegalArgumentException("userId ou routeId está vazio."))
+            return
+        }
+        val updates = hashMapOf<String, Any>(
+            "isActive" to isActive,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(ROUTES_COLLECTION).document(routeId)
+            .update(updates)
+            .addOnSuccessListener {
+                Log.d(TAG, "Status da rota (ID: $routeId) atualizado para $isActive para o usuário $userId.")
+                onComplete(true, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao atualizar status da rota (ID: $routeId) para o usuário $userId", e)
+                onComplete(false, e)
+            }
     }
 }

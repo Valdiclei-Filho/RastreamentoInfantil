@@ -44,7 +44,7 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
         firebaseRepository.signIn(email, password) { success, message ->
             _isLoading.value = false
             if (success) {
-                firebaseRepository.fetchUserData { userResult ->
+                firebaseRepository.fetchUserData { userResult, exception ->
                     _user.value = userResult
                     _isLoggedIn.value = true
                 }
