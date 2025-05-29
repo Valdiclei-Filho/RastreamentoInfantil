@@ -32,7 +32,10 @@ fun Navigation(
             RegisterScreen(loginViewModel, navController)
         }
         composable("main") {
-            MainScreen(mainViewModel)
+            MainScreen(mainViewModel = mainViewModel, navController = navController)
+        }
+        composable("mapscreen") {
+            MapScreen(mainViewModel = mainViewModel)
         }
     }
 }
