@@ -31,6 +31,7 @@ import com.google.maps.android.compose.*
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 import com.example.rastreamentoinfantil.model.Coordinate
 import com.example.rastreamentoinfantil.model.Geofence
+import com.example.rastreamentoinfantil.screen.AppDestinations.FAMILY_ROUTE_SCREEN
 import com.example.rastreamentoinfantil.screen.AppDestinations.ROUTE_LIST_SCREEN
 import java.util.UUID // Para gerar IDs de geofence temporários/novos
 
@@ -270,6 +271,9 @@ fun MapScreen(
             }
             Button(onClick = { navController.navigate(ROUTE_LIST_SCREEN) }) { // Você precisará do navController aqui
                 Text("Gerenciar Rotas")
+            }
+            Button(onClick = { navController.navigate(FAMILY_ROUTE_SCREEN) }) { // Você precisará do navController aqui
+                Text("Gerenciar Família")
             }
         }
     }

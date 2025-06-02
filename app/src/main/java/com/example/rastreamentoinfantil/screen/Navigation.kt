@@ -30,6 +30,10 @@ object AppDestinations {
     const val ROUTE_EDIT_SCREEN_BASE = "routeEdit"
     const val ROUTE_EDIT_SCREEN_ARG_ID = "routeId"
     const val ROUTE_EDIT_SCREEN = "$ROUTE_EDIT_SCREEN_BASE/{$ROUTE_EDIT_SCREEN_ARG_ID}" // Para editar uma rota existente
+
+    // Novas rotas para gerenciamento de família
+    const val FAMILY_ROUTE_SCREEN = "familyScreen"
+
 }
 
 @Composable
@@ -55,7 +59,7 @@ fun Navigation(
         }
         composable(AppDestinations.MAIN_SCREEN) {
             // MainScreen agora precisa de navController para ir para MapScreen ou RoutesListScreen
-            MainScreen(mainViewModel/*, navController*/)
+            MainScreen(mainViewModel, /*navController*/)
         }
         composable(AppDestinations.MAP_SCREEN) {
             // MapScreen também pode precisar do navController se tiver que navegar para outro lugar,
