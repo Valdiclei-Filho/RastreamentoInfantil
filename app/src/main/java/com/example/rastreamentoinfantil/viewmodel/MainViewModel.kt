@@ -5,6 +5,7 @@ import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.launch
 import android.app.Application
 import android.location.Location
+import android.os.Build
 import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -28,6 +29,16 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filterNotNull
 import com.example.rastreamentoinfantil.model.Route // Importe o modelo Route
+import com.example.rastreamentoinfantil.model.RoutePoint
+import com.google.firebase.ktx.BuildConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.UUID
 
 class MainViewModel(
     application: Application,
@@ -39,6 +50,7 @@ class MainViewModel(
 
     companion object {
         private const val TAG = "FirebaseRepository" // Definição do TAG aqui
+        private const val TAG1 = "MainViewModel" // TAG para MainViewModel
     }
 
     private val _directionsPolyline = MutableStateFlow<List<LatLng>>(emptyList())
@@ -69,7 +81,7 @@ class MainViewModel(
     val isLoadingRoutes: StateFlow<Boolean> = _isLoadingRoutes.asStateFlow()
 
     sealed interface RouteOperationStatus {
-        data class Success(val message: String) : RouteOperationStatus
+        data class Success(val message: String, val routeId: String? = null) : RouteOperationStatus
         data class Error(val errorMessage: String) : RouteOperationStatus
         object Loading : RouteOperationStatus
         object Idle : RouteOperationStatus // Estado inicial ou após conclusão
@@ -439,6 +451,149 @@ class MainViewModel(
         } ?: run {
             _error.value = "Usuário não logado para carregar detalhes da rota."
             _selectedRoute.value = null
+        }
+    }
+
+    private suspend fun getEncodedPolylineFromDirectionsApi(
+        origin: RoutePoint,
+        destination: RoutePoint,
+        waypoints: List<RoutePoint>?,
+        apiKey: String
+    ): String? {
+        return withContext(Dispatchers.IO) {
+            val originStr = "${origin.latitude},${origin.longitude}"
+            val destinationStr = "${destination.latitude},${destination.longitude}"
+
+            // Otimizar os waypoints para a API Directions
+            // A API prefere "optimize:true|waypoint1|waypoint2"
+            val waypointsStr = waypoints?.takeIf { it.isNotEmpty() }?.joinToString(separator = "|") {
+                "${it.latitude},${it.longitude}"
+            }
+
+            var urlString = "https://maps.googleapis.com/maps/api/directions/json?" +
+                    "origin=$originStr" +
+                    "&destination=$destinationStr" +
+                    "&key=$apiKey" +
+                    "&mode=driving" // ou walking, bicycling
+
+            if (!waypointsStr.isNullOrEmpty()) {
+                // Para melhor roteamento com waypoints, a API pode reordená-los se você adicionar optimize:true
+                // urlString += "&waypoints=optimize:true|$waypointsStr"
+                // Se a ordem dos waypoints for estrita:
+                urlString += "&waypoints=$waypointsStr"
+            }
+
+            Log.d(TAG1, "Requesting Encoded Polyline URL: $urlString")
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL(urlString)
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 15000 // 15 segundos
+                connection.readTimeout = 15000  // 15 segundos
+
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                    val response = StringBuilder()
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        response.append(line)
+                    }
+                    reader.close()
+
+                    val jsonResponse = JSONObject(response.toString())
+                    Log.d(TAG1, "Directions API Response for Polyline: $jsonResponse")
+
+                    if (jsonResponse.getString("status") == "OK") {
+                        val routesArray = jsonResponse.getJSONArray("routes")
+                        if (routesArray.length() > 0) {
+                            return@withContext routesArray.getJSONObject(0)
+                                .getJSONObject("overview_polyline")
+                                .getString("points")
+                        } else {
+                            Log.w(TAG1, "Directions API: Nenhuma rota encontrada.")
+                        }
+                    } else {
+                        val errorMessage = jsonResponse.optString("error_message", "Status não OK")
+                        Log.e(TAG1, "Erro da Directions API: ${jsonResponse.getString("status")} - $errorMessage")
+                    }
+                } else {
+                    Log.e(TAG1, "Directions API: HTTP Error Code: ${connection.responseCode} - ${connection.responseMessage}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG1, "Exceção ao processar resposta da Directions API: ${e.message}", e)
+            } finally {
+                connection?.disconnect()
+            }
+            return@withContext null
+        }
+    }
+
+    // --- NOVA FUNÇÃO PARA CRIAR ROTA COM DIRECTIONS ---
+    fun createRouteWithDirections(
+        name: String,
+        originPoint: RoutePoint,
+        destinationPoint: RoutePoint,
+        waypointsList: List<RoutePoint>?,
+        routeColor: String = "#FF0000", // Cor padrão
+        isActive: Boolean = true
+    ) {
+        currentUserId?.let { userId ->
+            viewModelScope.launch {
+                _routeOperationStatus.value = RouteOperationStatus.Loading
+                val apiKey = "AIzaSyB3KoJSAscYJb_YG70Mw3dqiBVXjMm7Z-k" // Obtenha sua API Key do BuildConfig
+
+                if (apiKey.isEmpty() || apiKey == "AIzaSyB3KoJSAscYJb_YG70Mw3dqiBVXjMm7Z-k") {
+                    Log.e(TAG1, "MAPS_API_KEY não configurada no BuildConfig.")
+                    _routeOperationStatus.value = RouteOperationStatus.Error("Chave de API do Google Maps não configurada.")
+                    return@launch
+                }
+
+                val encodedPolylineString = getEncodedPolylineFromDirectionsApi(
+                    originPoint,
+                    destinationPoint,
+                    waypointsList,
+                    apiKey
+                )
+
+                if (encodedPolylineString == null) {
+                    _routeOperationStatus.value = RouteOperationStatus.Error("Não foi possível calcular o caminho da rota. Verifique os pontos ou a conexão.")
+                    Log.w(TAG1, "Falha ao obter encodedPolyline da API.")
+                    return@launch
+                }
+
+                val newRoute = Route(
+                    id = UUID.randomUUID().toString(), // Gere um ID único para a nova rota
+                    name = name,
+                    origin = originPoint,
+                    destination = destinationPoint,
+                    waypoints = waypointsList,
+                    encodedPolyline = encodedPolylineString, // ARMAZENA A POLYLINE CODIFICADA
+                    isActive = isActive,
+                    routeColor = routeColor,
+                    // createdAt e updatedAt serão definidos pelo @ServerTimestamp no Firestore
+                )
+
+                // Agora, chame a função existente para salvar (que antes era addOrUpdate)
+                // Se sua função `saveRoute` no repositório lida com a atribuição de ID do Firestore,
+                // você pode passar `id = null` aqui e deixar o repo preencher.
+                // Mas para consistência, gerar um ID aqui e usá-lo é mais simples.
+                firebaseRepository.saveRoute(userId, newRoute) { routeIdFromSave, exception ->
+                    if (exception != null) {
+                        _routeOperationStatus.value = RouteOperationStatus.Error(exception.message ?: "Falha ao salvar rota.")
+                        Log.e(TAG1, "Erro ao salvar nova rota ${newRoute.id} para o usuário $userId", exception)
+                    } else if (routeIdFromSave != null) { // Sucesso
+                        _routeOperationStatus.value = RouteOperationStatus.Success("Rota '${newRoute.name}' criada e salva!", routeIdFromSave)
+                        loadUserRoutes(userId) // Recarregar rotas após salvar
+                    } else {
+                        _routeOperationStatus.value = RouteOperationStatus.Error("Falha desconhecida ao salvar rota.")
+                        Log.e(TAG1, "Erro desconhecido ao salvar nova rota ${newRoute.id} para o usuário $userId")
+                    }
+                }
+            }
+        } ?: run {
+            _routeOperationStatus.value = RouteOperationStatus.Error("Usuário não logado. Não é possível criar a rota.")
+            Log.w(TAG1, "Tentativa de criar rota sem usuário logado.")
         }
     }
 

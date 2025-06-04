@@ -1,43 +1,53 @@
 package com.example.rastreamentoinfantil.screen
 
 import android.util.Log
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.maps.android.compose.*
-import com.google.firebase.auth.FirebaseAuth // Para obter o userId
-import androidx.compose.foundation.layout.Box // Adicionado para sobrepor controles
-import androidx.compose.foundation.layout.Column // Adicionado para organizar controles
+import com.google.firebase.auth.FirebaseAuth
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button // Adicionado para botões
-import androidx.compose.material3.Slider // Adicionado para o Slider
-import androidx.compose.material3.Text // Adicionado para exibir texto
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import com.google.maps.android.compose.*
+// import androidx.compose.runtime.getValue // Já importado por androidx.compose.runtime.*
+// import androidx.compose.runtime.setValue // Já importado por androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Color // androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.compose.viewModel // Mantenha, mas vamos discutir o padrão
 import androidx.navigation.NavHostController
 import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.BitmapDescriptorFactory // Para ícones de marcador personalizados
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
-import com.google.maps.android.compose.*
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 import com.example.rastreamentoinfantil.model.Coordinate
 import com.example.rastreamentoinfantil.model.Geofence
 import com.example.rastreamentoinfantil.screen.AppDestinations.ROUTE_LIST_SCREEN
-import java.util.UUID // Para gerar IDs de geofence temporários/novos
+// import com.google.android.libraries.mapsplatform.transportation.consumer.model.Route // REMOVA ESTA LINHA CONFLITANTE
+import com.example.rastreamentoinfantil.model.Route // CERTIFIQUE-SE QUE ESTA É A CORRETA
+import com.google.maps.android.PolyUtil
+import java.util.UUID
+
+// Imports para PatternItem, Dash, Gap
+import com.google.android.gms.maps.model.Dash
+import com.google.android.gms.maps.model.Gap
+import com.google.android.gms.maps.model.PatternItem
 
 @Composable
 fun MapScreen(
     modifier: Modifier = Modifier,
-    mainViewModel: MainViewModel = viewModel(),
+    mainViewModel: MainViewModel, // Removido o default viewModel() aqui, passe explicitamente
     navController: NavHostController
 ) {
     val currentLocation by mainViewModel.currentLocation.collectAsState()
@@ -56,8 +66,8 @@ fun MapScreen(
     }
 
     var newGeofenceCenter by remember { mutableStateOf<LatLng?>(null) }
-    var newGeofenceRadius by remember { mutableStateOf(currentGeofence?.radius ?: 100f) } // Inicializa com o raio atual ou um padrão
-    var isEditingGeofence by remember { mutableStateOf(false) } // Para controlar a visibilidade dos controles de edição
+    var newGeofenceRadius by remember { mutableStateOf(100f) } // Inicializa com um padrão
+    var isEditingGeofence by remember { mutableStateOf(false) }
 
     val defaultLocation = LatLng(-23.550520, -46.633308) // São Paulo como padrão
     val initialZoom = 15f
@@ -66,11 +76,12 @@ fun MapScreen(
         position = CameraPosition.fromLatLngZoom(defaultLocation, initialZoom)
     }
 
-    // Atualiza a câmera para a localização do usuário
     LaunchedEffect(currentLocation) {
         currentLocation?.let { location ->
             val userLatLng = LatLng(location.latitude, location.longitude)
-            if (!isEditingGeofence) { // Só move a câmera se não estiver editando
+            // Verifica se o usuário está movendo o mapa manualmente
+            // e se não estamos no modo de edição da geofence.
+            if (!isEditingGeofence && cameraPositionState.cameraMoveStartedReason != CameraMoveStartedReason.GESTURE) {
                 cameraPositionState.animate(
                     update = CameraUpdateFactory.newLatLngZoom(userLatLng, cameraPositionState.position.zoom),
                     durationMs = 1000
@@ -79,12 +90,24 @@ fun MapScreen(
         }
     }
 
-    // Quando a geofence existente muda (e não estamos editando ativamente um novo centro),
-    // atualizamos o centro em potencial para edição e o raio.
     LaunchedEffect(currentGeofence) {
         if (!isEditingGeofence) {
             newGeofenceCenter = currentGeofence?.let { LatLng(it.coordinates.latitude, it.coordinates.longitude) }
             newGeofenceRadius = currentGeofence?.radius ?: 100f
+        }
+    }
+
+    // Função auxiliar para parsear a cor da rota de forma segura
+    // Usamos remember para que o cálculo só ocorra se route.routeColor mudar
+    @Composable
+    fun rememberParsedRouteColor(routeColorString: String?, defaultColorValue: String = "#3F51B5"): Color {
+        return remember(routeColorString) {
+            try {
+                Color(android.graphics.Color.parseColor(routeColorString ?: defaultColorValue))
+            } catch (e: Exception) {
+                Log.w("MapScreen", "Cor inválida para rota: $routeColorString", e)
+                Color(android.graphics.Color.parseColor(defaultColorValue)) // Fallback
+            }
         }
     }
 
@@ -93,163 +116,177 @@ fun MapScreen(
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
-            properties = MapProperties(isMyLocationEnabled = false), // Desabilitado para não confundir com o marcador de usuário
-            uiSettings = MapUiSettings(zoomControlsEnabled = true, myLocationButtonEnabled = true), // Habilita o botão "My Location" do Google Maps
+            properties = MapProperties(isMyLocationEnabled = false),
+            uiSettings = MapUiSettings(zoomControlsEnabled = true, myLocationButtonEnabled = true),
             onMapClick = { latLng ->
                 if (isEditingGeofence) {
-                    newGeofenceCenter = latLng // Define o novo centro ao clicar no mapa
+                    newGeofenceCenter = latLng
                 }
             }
-        ) {
+        ) { // Início do ComposableMapScope
+
+            if (isLoadingRoutes && routes.isEmpty()) { // Mostra apenas se estiver carregando E não houver rotas
+                // Não é possível colocar CircularProgressIndicator diretamente aqui
+                // porque este é um ComposableMapScope, não um escopo de layout normal.
+                // Você pode colocar um Marker especial ou nada.
+                // O CircularProgressIndicator foi movido para a Column de controles.
+            }
+
             routes.forEach { route ->
-                val routePoints = mutableListOf<LatLng>()
+                val routeColor = rememberParsedRouteColor(route.routeColor, "#3F51B5")
 
-                route.origin?.let { routePoints.add(LatLng(it.latitude, it.longitude)) }
-                route.waypoints?.forEach { waypoint ->
-                    routePoints.add(LatLng(waypoint.latitude, waypoint.longitude))
+                // 1. Tente decodificar a polyline AQUI, fora de qualquer chamada Composable direta
+                val decodedPath: List<LatLng>? = if (!route.encodedPolyline.isNullOrBlank()) {
+                    try {
+                        val path = PolyUtil.decode(route.encodedPolyline)
+                        if (path.size >= 2) path else null // Retorna null se não tiver pontos suficientes
+                    } catch (e: Exception) {
+                        Log.e("MapScreen", "Erro ao decodificar polyline para rota '${route.name}'", e)
+                        null // Retorna null em caso de exceção
+                    }
+                } else {
+                    Log.w("MapScreen", "Rota '${route.name}' não tem encodedPolyline.")
+                    null
                 }
-                route.destination?.let { routePoints.add(LatLng(it.latitude, it.longitude)) }
 
-                if (routePoints.size >= 2) { // Precisa de pelo menos 2 pontos para desenhar uma linha
+                // 2. Agora, use o resultado (decodedPath) para decidir o que compor
+                if (decodedPath != null) {
                     Polyline(
-                        points = routePoints,
-                        color = if (route.isActive) Color.Blue else Color.Gray, // Cor diferente para rotas ativas/inativas
-                        width = 8f, // Largura da linha
-                        clickable = true, // Permite cliques na polyline, se necessário
+                        points = decodedPath,
+                        color = if (route.isActive) routeColor else routeColor.copy(alpha = 0.5f),
+                        width = 8f,
+                        clickable = true,
                         onClick = {
-                            // Ação ao clicar na rota, por exemplo, mostrar o nome da rota
-                            // ou navegar para detalhes da rota.
-                            Log.d("MapScreen", "Rota clicada: ${route.name}")
-                            // Você pode querer mover a câmera para focar nesta rota
-                            // ou mostrar um InfoWindow (que precisa de um Marker)
+                            Log.d("MapScreen", "Rota (com polyline) clicada: ${route.name} - ID: ${route.id}")
+                            // mainViewModel.loadRouteDetails(route.id!!)
                         }
                     )
+                } else {
+                    // Se decodedPath for null (seja por erro, sem polyline, ou poucos pontos)
+                    // desenhe a linha de fallback.
+                    Log.w("MapScreen", "Desenhando fallback para rota '${route.name}'.")
+                    drawFallbackRouteLine(route, routeColor.copy(alpha = 0.7f))
+                }
 
-                    // Adicionar marcadores para origem e destino (opcional)
-                    route.origin?.let {
-                        Marker(
-                            state = MarkerState(position = LatLng(it.latitude, it.longitude)),
-                            title = "${route.name} - Origem"
-                        )
-                    }
-                    route.destination?.let {
-                        Marker(
-                            state = MarkerState(position = LatLng(it.latitude, it.longitude)),
-                            title = "${route.name} - Destino"
-                        )
-                    }
+                // Marcadores para origem, destino e waypoints (inalterado)
+                route.origin?.let { point ->
+                    Marker(
+                        state = MarkerState(position = LatLng(point.latitude, point.longitude)),
+                        title = "${route.name} - Origem",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)
+                    )
+                }
+                route.destination?.let { point ->
+                    Marker(
+                        state = MarkerState(position = LatLng(point.latitude, point.longitude)),
+                        title = "${route.name} - Destino",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
+                    )
+                }
+                route.waypoints?.forEachIndexed { index, waypoint ->
+                    Marker(
+                        state = MarkerState(position = LatLng(waypoint.latitude, waypoint.longitude)),
+                        title = "${route.name} - Parada ${index + 1}",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW)
+                    )
                 }
             }
 
-            // Marcador para a localização atual do usuário
             currentLocation?.let { location ->
                 val userLatLng = LatLng(location.latitude, location.longitude)
                 Marker(
                     state = MarkerState(position = userLatLng),
                     title = "Você está aqui",
                     snippet = "Localização atual",
-                    icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE) // Cor diferente
+                    icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
                 )
             }
 
-            // Desenha a GEOFENCE ATIVA (do ViewModel)
             currentGeofence?.let { fence ->
-                if (!isEditingGeofence || newGeofenceCenter == null) { // Só desenha a geofence ativa se não estiver editando uma nova, ou se a nova não tiver centro
+                if (!isEditingGeofence || newGeofenceCenter == null) {
                     val centerLatLng = LatLng(fence.coordinates.latitude, fence.coordinates.longitude)
-                    val geofenceStrokeColor: Color
-                    val geofenceFillColor: Color
-
-                    when (isInsideGeofence) {
-                        true -> {
-                            geofenceStrokeColor = Color.Green.copy(alpha = 0.8f)
-                            geofenceFillColor = Color.Green.copy(alpha = 0.3f)
-                        }
-                        false -> {
-                            geofenceStrokeColor = Color.Red.copy(alpha = 0.8f)
-                            geofenceFillColor = Color.Red.copy(alpha = 0.3f)
-                        }
-                        null -> {
-                            geofenceStrokeColor = Color.Gray.copy(alpha = 0.7f)
-                            geofenceFillColor = Color.Gray.copy(alpha = 0.2f)
-                        }
+                    val (strokeColor, fillColor) = when (isInsideGeofence) {
+                        true -> Color.Green.copy(alpha = 0.8f) to Color.Green.copy(alpha = 0.3f)
+                        false -> Color.Red.copy(alpha = 0.8f) to Color.Red.copy(alpha = 0.3f)
+                        null -> Color.Gray.copy(alpha = 0.7f) to Color.Gray.copy(alpha = 0.2f)
                     }
-
                     Circle(
                         center = centerLatLng,
                         radius = fence.radius.toDouble(),
-                        strokeColor = geofenceStrokeColor,
+                        strokeColor = strokeColor,
                         strokeWidth = 5f,
-                        fillColor = geofenceFillColor
+                        fillColor = fillColor
                     )
                     Marker(
                         state = MarkerState(position = centerLatLng),
                         title = fence.name ?: "Área Segura",
-                        snippet = "Raio: ${fence.radius}m"
+                        snippet = "Raio: ${fence.radius.toInt()}m" // Usar toInt() para melhor formatação
                     )
                 }
             }
 
-            // Desenha a GEOFENCE EM EDIÇÃO (temporária)
             if (isEditingGeofence && newGeofenceCenter != null) {
                 Circle(
                     center = newGeofenceCenter!!,
                     radius = newGeofenceRadius.toDouble(),
                     strokeColor = Color.Magenta.copy(alpha = 0.7f),
-                    strokeWidth = 7f, // Mais grossa para destacar
+                    strokeWidth = 7f,
                     fillColor = Color.Magenta.copy(alpha = 0.2f)
                 )
                 Marker(
                     state = MarkerState(position = newGeofenceCenter!!),
-                    title = "Novo Centro",
+                    title = "Novo Centro Geofence", // Título mais descritivo
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_MAGENTA)
                 )
             }
-        }
+        } // Fim do ComposableMapScope
 
-        // Controles de Edição da Geofence (sobrepostos ao mapa)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(16.dp)
         ) {
+            if (isLoadingRoutes && routes.isEmpty()) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             if (isEditingGeofence) {
-                Text("Raio: ${newGeofenceRadius.toInt()} m", color = Color.Black)
+                Text("Raio da Geofence: ${newGeofenceRadius.toInt()} m", color = Color.Black) // Use Color.Black ou outra cor de MaterialTheme
                 Slider(
                     value = newGeofenceRadius,
                     onValueChange = { newGeofenceRadius = it },
-                    valueRange = 50f..1000f, // Exemplo de range, ajuste conforme necessário
-                    steps = ((1000f - 50f) / 10f).toInt() -1 // Opcional: define "pulos" no slider
+                    valueRange = 50f..1000f,
+                    steps = ((1000f - 50f) / 50f).toInt() - 1 // Pulos de 50m
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = {
                     newGeofenceCenter?.let { center ->
                         val geofenceToSave = Geofence(
-                            id = currentGeofence?.id ?: UUID.randomUUID().toString(), // Reusa ID ou cria novo
-                            name = currentGeofence?.name ?: "Nova Área Segura", // Reusa nome ou default
+                            id = currentGeofence?.id ?: UUID.randomUUID().toString(),
+                            name = currentGeofence?.name ?: "Nova Área Segura",
                             radius = newGeofenceRadius,
                             coordinates = Coordinate(center.latitude, center.longitude)
                         )
-                        mainViewModel.updateUserGeofence(geofenceToSave) // Chama o ViewModel
+                        mainViewModel.updateUserGeofence(geofenceToSave)
                     }
-                    isEditingGeofence = false // Sai do modo de edição
+                    isEditingGeofence = false
                 }) {
                     Text("Salvar Geofence")
                 }
                 Button(onClick = {
-                    // Restaura os valores para os da geofence ativa ou limpa
                     newGeofenceCenter = currentGeofence?.let { LatLng(it.coordinates.latitude, it.coordinates.longitude) }
                     newGeofenceRadius = currentGeofence?.radius ?: 100f
                     isEditingGeofence = false
                 }) {
-                    Text("Cancelar")
+                    Text("Cancelar Edição") // Texto mais claro
                 }
-                // Botão para deletar a geofence existente
                 if (currentGeofence != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = {
-                        mainViewModel.updateUserGeofence(null) // Passa null para deletar
-                        isEditingGeofence = false // Sai do modo de edição
-                        newGeofenceCenter = null // Limpa o centro de edição
+                        mainViewModel.updateUserGeofence(null)
+                        isEditingGeofence = false
+                        newGeofenceCenter = null
                     }) {
                         Text("Remover Geofence Atual")
                     }
@@ -257,20 +294,43 @@ fun MapScreen(
 
             } else {
                 Button(onClick = {
-                    // Entra no modo de edição
-                    // Se já existe uma geofence, usa seus valores como ponto de partida
-                    // Se não, o newGeofenceCenter pode ser null (usuário clica para definir) ou a localização atual
                     newGeofenceCenter = currentGeofence?.let { LatLng(it.coordinates.latitude, it.coordinates.longitude) }
-                        ?: currentLocation?.let { LatLng(it.latitude, it.longitude) } // Ponto de partida
+                        ?: currentLocation?.let { LatLng(it.latitude, it.longitude) }
                     newGeofenceRadius = currentGeofence?.radius ?: 100f
                     isEditingGeofence = true
                 }) {
                     Text(if (currentGeofence == null) "Definir Nova Geofence" else "Editar Geofence")
                 }
             }
-            Button(onClick = { navController.navigate(ROUTE_LIST_SCREEN) }) { // Você precisará do navController aqui
+            Spacer(modifier = Modifier.height(8.dp)) // Adicionado Spacer antes do botão de Gerenciar Rotas
+            Button(onClick = { navController.navigate(ROUTE_LIST_SCREEN) }) {
                 Text("Gerenciar Rotas")
             }
         }
+    }
+}
+
+// A função drawFallbackRouteLine está correta em termos de escopo (ComposableMapScope)
+// e acesso aos campos de 'route' assuming 'route' is your model.
+@Composable
+@GoogleMapComposable
+private fun drawFallbackRouteLine(
+    route: Route, // Seja explícito com o tipo Route aqui
+    color: Color
+) {
+    val fallbackPoints = mutableListOf<LatLng>()
+    route.origin?.let { point -> fallbackPoints.add(LatLng(point.latitude, point.longitude)) }
+    route.waypoints?.forEach { waypoint ->
+        fallbackPoints.add(LatLng(waypoint.latitude, waypoint.longitude))
+    }
+    route.destination?.let { point -> fallbackPoints.add(LatLng(point.latitude, point.longitude)) }
+
+    if (fallbackPoints.size >= 2) {
+        Polyline(
+            points = fallbackPoints, // MutableList é aceitável aqui, pois List é esperado
+            color = color.copy(alpha = 0.6f),
+            width = 6f,
+            pattern = listOf<PatternItem>(Dash(20f), Gap(10f)) // Tipos explícitos para clareza
+        )
     }
 }
