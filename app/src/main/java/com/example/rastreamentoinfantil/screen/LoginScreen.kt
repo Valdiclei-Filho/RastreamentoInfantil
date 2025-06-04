@@ -1,6 +1,5 @@
 package com.example.rastreamentoinfantil.screen
 
-import androidx.compose.ui.semantics.error
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -51,6 +50,10 @@ fun LoginScreen(
         }
     }
 
+    // Controla a exibição do diálogo conforme o erro no ViewModel
+    LaunchedEffect(error) {
+        showDialog = !error.isNullOrEmpty()
+    }
 
     Column(
         modifier = Modifier
@@ -99,19 +102,20 @@ fun LoginScreen(
             ) {
                 Text("Cadastrar")
             }
-            if (!error.isNullOrEmpty()) {
-                showDialog = true
-            }
         }
 
         if (showDialog) {
             AlertDialog(
-                onDismissRequest = { showDialog = false },
+                onDismissRequest = {
+                    showDialog = false
+                    loginViewModel.clearError()  // Limpa o erro no ViewModel ao fechar o diálogo
+                },
                 title = { Text("Erro") },
                 text = { Text(error!!) },
                 confirmButton = {
                     Button(onClick = {
                         showDialog = false
+                        loginViewModel.clearError()  // Limpa o erro no ViewModel ao clicar em OK
                     }) {
                         Text("OK")
                     }

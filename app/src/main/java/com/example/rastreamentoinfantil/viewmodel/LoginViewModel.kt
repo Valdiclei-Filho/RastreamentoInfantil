@@ -60,4 +60,9 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
         firebaseRepository.signOut()
         _isLoggedIn.value = false
     }
+
+    // Função para limpar o erro
+    fun clearError() {
+        _error.value = null
+    }
 }
