@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">RastreamentoInfantil</string>
+    <string name="channel_name">Alertas de Geofence</string>
+    <string name="channel_description">Notificações quando o usuário sai da área segura.</string>
 </resources>

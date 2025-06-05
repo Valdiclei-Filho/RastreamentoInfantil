@@ -44,7 +44,7 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
         firebaseRepository.signIn(email, password) { success, message ->
             _isLoading.value = false
             if (success) {
-                firebaseRepository.fetchUserData { userResult ->
+                firebaseRepository.fetchUserData { userResult, exception ->
                     _user.value = userResult
                     _isLoggedIn.value = true
                 }
@@ -59,5 +59,10 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
     fun signOut() {
         firebaseRepository.signOut()
         _isLoggedIn.value = false
+    }
+
+    // Função para limpar o erro
+    fun clearError() {
+        _error.value = null
     }
 }

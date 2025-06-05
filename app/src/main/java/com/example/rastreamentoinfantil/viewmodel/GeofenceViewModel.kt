@@ -29,7 +29,7 @@ class GeofenceViewModel(
             // Supondo que FirebaseRepository tenha uma função para salvar Geofence
             val userId = firebaseRepository.getCurrentUser()?.uid
             if (userId != null) {
-                firebaseRepository.saveGeofence(geofence, userId) { success ->
+                firebaseRepository.saveLegacyGeofence(geofence, userId) { success, exception ->
                     _isLoading.value = false
                     if (success) {
                         _saveSuccess.value = true
