@@ -23,11 +23,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
 import com.example.rastreamentoinfantil.model.LocationRecord
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 
 @Composable
-fun MainScreen(mainViewModel: MainViewModel) {
+fun MainScreen(mainViewModel: MainViewModel, navController: NavController) {
     val locationRecords by mainViewModel.locationRecords.observeAsState(emptyList())
     val isLoading by mainViewModel.isLoading.observeAsState(false)
     val error by mainViewModel.error.observeAsState()
@@ -61,6 +62,15 @@ fun MainScreen(mainViewModel: MainViewModel) {
             }
 
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(onClick = {
+            navController.navigate("mapscreen")
+        }) {
+            Text("Abrir Mapa")
+        }
+
         if (!error.isNullOrEmpty()) {
             showDialog = true
         }
