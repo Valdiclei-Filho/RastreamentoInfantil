@@ -27,6 +27,10 @@ class LocationService(private val context: Context) {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
     }
 
+    companion object {
+        private const val TAG = "FirebaseRepository" // Definição do TAG aqui
+    }
+
     private val locationRequest = LocationRequest.Builder(
         Priority.PRIORITY_HIGH_ACCURACY, // Prioridade: alta precisão
         100000L // Intervalo: a cada 1 segundo (ajuste conforme necessário)
