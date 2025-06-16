@@ -600,4 +600,12 @@ class MainViewModel(
     fun clearRouteOperationStatus() {
         _routeOperationStatus.value = RouteOperationStatus.Idle
     }
+
+    fun clearAllData() {
+        _isLoadingRoutes.value = false
+        _currentLocation.value = null
+        _geofenceArea.value = null
+        _isUserInsideGeofence.value = null
+    }
+
 }
