@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.example.rastreamentoinfantil.model.User
 import com.example.rastreamentoinfantil.viewmodel.LoginViewModel
+import java.util.UUID
+import kotlin.toString
 
 @Composable
 fun RegisterScreen(
@@ -110,6 +112,7 @@ fun RegisterScreen(
                         return@Button
                     }
                     val user = User(
+                        id = UUID.randomUUID().toString(),
                         name = name,
                         email = email,
                         type = null

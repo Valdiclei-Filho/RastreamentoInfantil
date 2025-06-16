@@ -1,35 +1,35 @@
 package com.example.rastreamentoinfantil.screen
 
-import com.example.rastreamentoinfantil.MainActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.navigation.NavType // Importar NavType
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument // Importar navArgument
+import androidx.navigation.navArgument
+import com.example.rastreamentoinfantil.MainActivity
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
-// Removido GeofenceViewModel se não estiver sendo usado diretamente aqui.
-// import com.example.rastreamentoinfantil.viewmodel.GeofenceViewModel
+import com.example.rastreamentoinfantil.viewmodel.FamilyViewModel
 import com.example.rastreamentoinfantil.viewmodel.LoginViewModel
 import com.example.rastreamentoinfantil.viewmodel.LoginViewModelFactory
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
+import com.google.firebase.auth.FirebaseAuth
 
-// Definições das rotas para clareza e reutilização
+// ✅ Definições das rotas
 object AppDestinations {
     const val LOGIN_SCREEN = "login"
     const val REGISTER_SCREEN = "register"
-    const val MAIN_SCREEN = "main" // Assumindo que esta é a tela que pode levar ao MapScreen ou RoutesListScreen
+    const val MAIN_SCREEN = "main"
     const val MAP_SCREEN = "mapscreen"
-    const val GEOFENCE_CONFIG_SCREEN = "geofenceconfig" // Manteve, mas sem conteúdo ainda
-
-    // Novas rotas para gerenciamento de Rotas (trajetos)
+    const val GEOFENCE_CONFIG_SCREEN = "geofenceconfig"
     const val ROUTE_LIST_SCREEN = "routeList"
-    const val ROUTE_CREATE_SCREEN = "routeCreate" // Para criar uma nova rota
+    const val ROUTE_CREATE_SCREEN = "routeCreate"
     const val ROUTE_EDIT_SCREEN_BASE = "routeEdit"
     const val ROUTE_EDIT_SCREEN_ARG_ID = "routeId"
-    const val ROUTE_EDIT_SCREEN = "$ROUTE_EDIT_SCREEN_BASE/{$ROUTE_EDIT_SCREEN_ARG_ID}" // Para editar uma rota existente
+    const val ROUTE_EDIT_SCREEN = "$ROUTE_EDIT_SCREEN_BASE/{$ROUTE_EDIT_SCREEN_ARG_ID}"
+    const val FAMILY_SCREEN = "family"
 }
 
 @Composable
@@ -38,73 +38,89 @@ fun Navigation(
     mainViewModel: MainViewModel,
 ) {
     val navController = rememberNavController()
-    // loginViewModel é instanciado aqui, mas passado para as telas de login/registro.
-    // mainViewModel é passado para telas que precisam dele após o login.
-    val firebaseRepository = FirebaseRepository() // Considere injeção de dependência para o repositório
+    val firebaseRepository = FirebaseRepository()
+
     val loginViewModel = ViewModelProvider(
         activity,
-        LoginViewModelFactory(firebaseRepository) // Certifique-se que LoginViewModelFactory está correta
+        LoginViewModelFactory(firebaseRepository)
     )[LoginViewModel::class.java]
 
-    NavHost(navController = navController, startDestination = AppDestinations.LOGIN_SCREEN) {
+    val currentUser = FirebaseAuth.getInstance().currentUser
+    val currentUserId = currentUser?.uid ?: ""
+    val currentUserEmail = currentUser?.email ?: ""
+
+    println("startDestination")
+
+    println(currentUser)
+
+    val startDestination = if (currentUser != null) {
+        AppDestinations.MAP_SCREEN
+    } else {
+        AppDestinations.LOGIN_SCREEN
+    }
+
+    val familyViewModel = ViewModelProvider(
+        activity,
+        object : ViewModelProvider.Factory {
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                if (modelClass.isAssignableFrom(FamilyViewModel::class.java)) {
+                    @Suppress("UNCHECKED_CAST")
+                    return FamilyViewModel(
+                        firebaseRepository,
+                        currentUserId,
+                        currentUserEmail
+                    ) as T
+                }
+                throw IllegalArgumentException("Unknown ViewModel class")
+            }
+        }
+    )[FamilyViewModel::class.java]
+
+    NavHost(navController = navController, startDestination = startDestination) {
+
         composable(AppDestinations.LOGIN_SCREEN) {
+            println(">>>>>>>>> login screen<<<< ")
             LoginScreen(loginViewModel, navController)
         }
         composable(AppDestinations.REGISTER_SCREEN) {
             RegisterScreen(loginViewModel, navController)
         }
-        composable(AppDestinations.MAIN_SCREEN) {
-            // MainScreen agora precisa de navController para ir para MapScreen ou RoutesListScreen
-            MainScreen(mainViewModel/*, navController*/)
-        }
+
         composable(AppDestinations.MAP_SCREEN) {
-            // MapScreen também pode precisar do navController se tiver que navegar para outro lugar,
-            // como a tela de configuração de geofence ou edição de rota a partir do mapa.
             MapScreen(
                 modifier = Modifier,
                 mainViewModel = mainViewModel,
-                navController = navController // Adicionado navController
+                navController = navController
             )
-        }
-        composable(AppDestinations.GEOFENCE_CONFIG_SCREEN) {
-            // GeofenceConfigScreen(mainViewModel, navController) // Exemplo se você criar esta tela
-            // Por enquanto, vazio como no seu original
         }
 
-        // --- Novas telas para Gerenciamento de Rotas ---
+        // ⚙️ Tela de configuração de geofence (placeholder se não tiver conteúdo ainda)
+        composable(AppDestinations.GEOFENCE_CONFIG_SCREEN) {
+            // GeofenceConfigScreen(navController) // se desejar implementar
+        }
+
+        // 🗺️ Telas de gerenciamento de rotas
         composable(AppDestinations.ROUTE_LIST_SCREEN) {
-            RoutesListScreen(
-                navController = navController,
-                mainViewModel = mainViewModel
-            )
+            RoutesListScreen(navController = navController, mainViewModel = mainViewModel)
         }
 
         composable(AppDestinations.ROUTE_CREATE_SCREEN) {
-            RouteEditScreen(
-                navController = navController,
-                mainViewModel = mainViewModel,
-                routeId = null // Indica que estamos criando uma nova rota
-            )
+            RouteEditScreen(navController = navController, mainViewModel = mainViewModel, routeId = null)
         }
 
         composable(
             route = AppDestinations.ROUTE_EDIT_SCREEN,
             arguments = listOf(navArgument(AppDestinations.ROUTE_EDIT_SCREEN_ARG_ID) {
                 type = NavType.StringType
-                // nullable = true // Defina como true se um ID nulo for um estado válido,
-                // mas para edição, geralmente esperamos um ID.
-                // Se for para criar quando nulo, então a rota ROUTE_CREATE_SCREEN é mais explícita.
             })
         ) { backStackEntry ->
             val routeId = backStackEntry.arguments?.getString(AppDestinations.ROUTE_EDIT_SCREEN_ARG_ID)
-            // Se routeId for nulo aqui, pode indicar um problema de navegação ou
-            // você pode querer redirecionar para a tela de criação ou mostrar um erro.
-            // No entanto, a definição da rota espera um routeId.
-            RouteEditScreen(
-                navController = navController,
-                mainViewModel = mainViewModel,
-                routeId = routeId // Passa o ID da rota para edição
-            )
+            RouteEditScreen(navController = navController, mainViewModel = mainViewModel, routeId = routeId)
+        }
+
+        // 👪 Tela de família
+        composable(AppDestinations.FAMILY_SCREEN) {
+            FamilyScreen(navController = navController)
         }
     }
 }

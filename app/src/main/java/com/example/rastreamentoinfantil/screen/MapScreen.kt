@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
@@ -34,8 +35,10 @@ import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 import com.example.rastreamentoinfantil.model.Coordinate
 import com.example.rastreamentoinfantil.model.Geofence
 import com.example.rastreamentoinfantil.screen.AppDestinations.ROUTE_LIST_SCREEN
+import com.example.rastreamentoinfantil.screen.AppDestinations.FAMILY_SCREEN
 // import com.google.android.libraries.mapsplatform.transportation.consumer.model.Route // REMOVA ESTA LINHA CONFLITANTE
 import com.example.rastreamentoinfantil.model.Route // CERTIFIQUE-SE QUE ESTA É A CORRETA
+import com.example.rastreamentoinfantil.screen.AppDestinations.LOGIN_SCREEN
 import com.google.maps.android.PolyUtil
 import java.util.UUID
 
@@ -305,6 +308,28 @@ fun MapScreen(
             Spacer(modifier = Modifier.height(8.dp)) // Adicionado Spacer antes do botão de Gerenciar Rotas
             Button(onClick = { navController.navigate(ROUTE_LIST_SCREEN) }) {
                 Text("Gerenciar Rotas")
+            }
+            Spacer(modifier = Modifier.height(8.dp)) // Adicionado Spacer antes do botão de Gerenciar Familias
+            Button(onClick = { navController.navigate(FAMILY_SCREEN) }) {
+                Text("Gerenciar Famílias")
+            }
+
+            Button(
+                onClick = {
+                    FirebaseAuth.getInstance().signOut()
+
+                    println(FirebaseAuth.getInstance().currentUser)
+
+                    mainViewModel.clearAllData()
+                    navController.navigate(LOGIN_SCREEN) {
+                        popUpTo(0) { inclusive = true } // Remove tudo da pilha PRECISA AJUSTAR NAO TA SAINDO A PILHA
+                        launchSingleTop = true
+                    }
+
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+            ) {
+                Text("Sair", color = Color.White)
             }
         }
     }
