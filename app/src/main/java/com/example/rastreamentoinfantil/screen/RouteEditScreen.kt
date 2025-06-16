@@ -1,15 +1,16 @@
 // Novo arquivo: screen/RouteEditScreen.kt
 package com.example.rastreamentoinfantil.screen
 
+import android.util.Log
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -17,8 +18,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import kotlin.collections.map
 import kotlin.collections.forEachIndexed
-import com.example.rastreamentoinfantil.model.Coordinate
-import com.example.rastreamentoinfantil.model.Route
 import com.example.rastreamentoinfantil.model.RoutePoint
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
@@ -29,7 +28,6 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
-import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +53,7 @@ fun RouteEditScreen(
     }
     var isRouteActive by rememberSaveable(existingRoute) { mutableStateOf(existingRoute?.isActive ?: false) }
 
+    var displayableEncodedPolyline by remember { mutableStateOf<String?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -64,12 +63,13 @@ fun RouteEditScreen(
             mainViewModel.loadRouteDetails(routeId)
         } else {
             // Se for criação, limpar qualquer rota selecionada anteriormente
-            // mainViewModel.clearSelectedRoute() // Você precisaria adicionar essa função no ViewModel
+            //mainViewModel.clearSelectedRoute() // Você precisaria adicionar essa função no ViewModel
             routeName = ""
             routePoints = emptyList()
             originPoint = null
             destinationPoint = null
-            isRouteActive = false
+            isRouteActive = true
+            displayableEncodedPolyline = null
         }
     }
 
@@ -82,12 +82,14 @@ fun RouteEditScreen(
             destinationPoint = routeData.destination?.let { coord -> LatLng(coord.latitude, coord.longitude) }
             routePoints = routeData.waypoints?.map { coord -> LatLng(coord.latitude, coord.longitude) } ?: emptyList()
             isRouteActive = routeData.isActive
+            displayableEncodedPolyline = routeData.encodedPolyline // Carrega o polyline existente para exibição
         } else if (routeId == null) { // Modo Criação (ou existingRoute é nulo e é criação)
             routeName = ""
             originPoint = null
             destinationPoint = null
             routePoints = emptyList()
             isRouteActive = false
+            displayableEncodedPolyline = null
         }
         // Se existingRoute for nulo E routeId NÃO for nulo, significa que estamos esperando dados de edição que ainda não chegaram.
         // O LaunchedEffect(routeId) { mainViewModel.loadRouteDetails(routeId) } cuidará de carregar os dados,
@@ -123,16 +125,43 @@ fun RouteEditScreen(
                         val finalWaypoints = routePoints.map { RoutePoint(latitude = it.latitude, longitude = it.longitude) }
 
                         if (routeName.isNotBlank() && finalOrigin != null && finalDestination != null) {
-                            val routeToSave = Route(
-                                id = routeId ?: UUID.randomUUID().toString(),
+                            val pointsHaveChanged = routeId == null || // É uma nova rota
+                                    existingRoute?.origin?.let { LatLng(it.latitude, it.longitude) } != originPoint ||
+                                    existingRoute?.destination?.let { LatLng(it.latitude, it.longitude) } != destinationPoint ||
+                                    (existingRoute?.waypoints?.map { LatLng(it.latitude, it.longitude) } ?: emptyList()) != routePoints
+
+                            if (pointsHaveChanged) {
+                                // ----> CHAMADA A createRouteWithDirections <----
+                                mainViewModel.createRouteWithDirections(
+                                    name = routeName,
+                                    originPoint = finalOrigin,
+                                    destinationPoint = finalDestination,
+                                    waypointsList = finalWaypoints.takeIf { it.isNotEmpty() }, // Passa null se vazio
+                                    isActive = isRouteActive
+                                    // routeColor pode ser adicionado como parâmetro aqui se você tiver um seletor de cor na UI
+                                )
+                            } else if (routeId != null && existingRoute != null) {
+                            // Pontos não mudaram, mas outros campos (nome, isActive) podem ter mudado.
+                            // Salva a rota com o encodedPolyline existente.
+                            val routeToUpdate = existingRoute!!.copy( // Sabemos que existingRoute não é nulo aqui
                                 name = routeName,
-                                origin = finalOrigin,
-                                destination = finalDestination,
-                                waypoints = finalWaypoints,
-                                isActive = isRouteActive
-                                // creationDate e updatedDate seriam preenchidos no repositório
+                                isActive = isRouteActive,
+                                // Certifique-se que o encodedPolyline existente é mantido
+                                encodedPolyline = existingRoute!!.encodedPolyline
                             )
-                            mainViewModel.addOrUpdateRoute(routeToSave)
+                            mainViewModel.addOrUpdateRoute(routeToUpdate) // Assume que addOrUpdateRoute não recalcula o polyline
+                        } else {
+                            // Caso improvável: routeId é nulo (nova rota), mas pointsHaveChanged é falso.
+                            // Isso não deveria acontecer com a lógica acima.
+                            // Ainda assim, como fallback, chamar createRouteWithDirections.
+                            mainViewModel.createRouteWithDirections(
+                                name = routeName,
+                                originPoint = finalOrigin,
+                                destinationPoint = finalDestination,
+                                waypointsList = finalWaypoints.takeIf { it.isNotEmpty() },
+                                isActive = isRouteActive
+                            )
+                        }
                         } else {
                             scope.launch { // Use o scope aqui
                                 snackbarHostState.showSnackbar(
@@ -210,14 +239,27 @@ fun RouteEditScreen(
                             BitmapDescriptorFactory.HUE_GREEN))
                     }
 
-                    // Desenhar polylines
-                    val allPointsForPolyline = mutableListOf<LatLng>()
-                    originPoint?.let { allPointsForPolyline.add(it) }
-                    allPointsForPolyline.addAll(routePoints)
-                    destinationPoint?.let { allPointsForPolyline.add(it) }
+                    displayableEncodedPolyline?.let { encodedPath ->
+                        val decodedPath: List<LatLng> = try {
+                            com.google.maps.android.PolyUtil.decode(encodedPath)
+                        } catch (e: Exception) {
+                            Log.e("RouteEditScreen", "Falha ao decodificar polyline: $encodedPath", e)
+                            emptyList()
+                        }
+                        if (decodedPath.isNotEmpty()) {
+                            Polyline(points = decodedPath, color = MaterialTheme.colorScheme.primary, width = 8f)
+                        }
+                    } ?: run {
+                        // Fallback: Desenhar polylines retas entre os pontos definidos manualmente
+                        // como feedback visual imediato durante a edição.
+                        val allPointsForPolyline = mutableListOf<LatLng>()
+                        originPoint?.let { allPointsForPolyline.add(it) }
+                        allPointsForPolyline.addAll(routePoints)
+                        destinationPoint?.let { allPointsForPolyline.add(it) }
 
-                    if (allPointsForPolyline.size >= 2) {
-                        Polyline(points = allPointsForPolyline, color = MaterialTheme.colorScheme.primary)
+                        if (allPointsForPolyline.size >= 2) {
+                            Polyline(points = allPointsForPolyline, color = MaterialTheme.colorScheme.secondary, width = 5f)
+                        }
                     }
                 }
             }
@@ -226,6 +268,7 @@ fun RouteEditScreen(
                 originPoint = null
                 destinationPoint = null
                 routePoints = emptyList()
+                displayableEncodedPolyline = null
             }, modifier = Modifier.fillMaxWidth()) {
                 Text("Limpar Pontos do Mapa")
             }

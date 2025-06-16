@@ -4,17 +4,22 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.rastreamentoinfantil.MainActivity // Sua atividade principal
 import com.example.rastreamentoinfantil.R
 
 // Constante para o ID do canal (o mesmo da MainActivity)
 const val GEOFENCE_CHANNEL_ID = "geofence_channel_id"
+const val ROUTE_CHANNEL_ID = "route_channel_id"
 private const val GEOFENCE_NOTIFICATION_ID = 1 // ID único para esta notificação
+private const val ROUTE_NOTIFICATION_ID = 2
 
 object NotificationHelper {
+    private const val TAG = "NotificationHelper"
 
     fun showGeofenceExitNotification(context: Context, geofenceId: String) {
+        Log.d(TAG, "Preparando notificação de saída da geofence: $geofenceId")
         val notificationManager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -42,9 +47,36 @@ object NotificationHelper {
         // (Embora o sistema Android 13+ não mostre se não tiver, é uma boa prática para robustez)
         // if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
         notificationManager.notify(GEOFENCE_NOTIFICATION_ID, builder.build())
-        println("Notificação de saída da geofence enviada para: $geofenceId")
+        Log.d(TAG, "Notificação de saída da geofence enviada para: $geofenceId")
         // } else {
         //     println("Não foi possível enviar notificação: permissão POST_NOTIFICATIONS não concedida.")
         // }
+    }
+
+    fun showRouteExitNotification(context: Context, routeName: String) {
+        Log.d(TAG, "Preparando notificação de saída da rota: $routeName")
+        val notificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent: PendingIntent = PendingIntent.getActivity(
+            context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val notificationTitle = "Alerta de Desvio!"
+        val notificationText = "Você saiu da rota: $routeName."
+
+        val builder = NotificationCompat.Builder(context, ROUTE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_background)
+            .setContentTitle(notificationTitle)
+            .setContentText(notificationText)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+
+        notificationManager.notify(ROUTE_NOTIFICATION_ID, builder.build())
+        Log.d(TAG, "Notificação de saída da rota enviada para: $routeName")
     }
 }

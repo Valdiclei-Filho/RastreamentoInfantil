@@ -39,13 +39,15 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import com.example.rastreamentoinfantil.helper.RouteHelper
 
 class MainViewModel(
     application: Application,
     private val firebaseRepository: FirebaseRepository,
     private val locationService: LocationService,
     private val geocodingService: GeocodingService,
-    private val geofenceHelperClass: GeofenceHelper // Injete o GeofenceHelper
+    private val geofenceHelperClass: GeofenceHelper,
+    private val routeHelper: RouteHelper = RouteHelper()
 ) : AndroidViewModel(application) {
 
     companion object {
@@ -61,8 +63,8 @@ class MainViewModel(
 
     private var lastKnownGeofenceStatus: Boolean? = null
 
-    private val _currentLocation = MutableStateFlow<android.location.Location?>(null)
-    val currentLocation: StateFlow<android.location.Location?> = _currentLocation.asStateFlow()
+    private val _currentLocation = MutableStateFlow<Location?>(null)
+    val currentLocation: StateFlow<Location?> = _currentLocation.asStateFlow()
 
     // Este será o StateFlow que a UI e a lógica de notificação observam
     private val _geofenceArea = MutableStateFlow<Geofence?>(null)
@@ -106,34 +108,146 @@ class MainViewModel(
     // Usaremos _geofenceArea.value como a fonte da verdade para a geofence ativa
     private var currentUserId: String? = null
 
-    init {
-        // A geofence será carregada via loadUserIdAndGeofence()
-        // Não precisamos mais do loadSavedGeofence() daqui (que era para SharedPreferences)
-        // nem do if (_geofenceArea.value == null) para definir uma padrão aqui,
-        // pois o carregamento do Firebase cuidará disso.
+    private var lastKnownRouteStatus: Boolean? = null
+    private val _isLocationOnRoute = MutableStateFlow<Boolean?>(null)
+    val isLocationOnRoute: StateFlow<Boolean?> = _isLocationOnRoute.asStateFlow()
 
+    private val _showRouteExitNotificationEvent = MutableSharedFlow<String>()
+    val showRouteExitNotificationEvent = _showRouteExitNotificationEvent.asSharedFlow()
+
+    private val _routeDeviationEvent = MutableSharedFlow<RouteDeviation>()
+    val routeDeviationEvent = _routeDeviationEvent.asSharedFlow()
+
+    data class RouteDeviation(
+        val routeId: String,
+        val routeName: String,
+        val currentLocation: Location,
+        val lastKnownRoutePoint: RoutePoint?,
+        val deviationDistance: Double
+    )
+
+    init {
+        Log.d(TAG1, "Inicializando MainViewModel")
+        startLocationMonitoring()
+        
+        // Monitora a localização e verifica automaticamente as rotas ativas
         viewModelScope.launch {
-            locationService.getLocationUpdates().collect { location ->
-                _currentLocation.value = location
+            currentLocation.collect { location ->
+                if (location != null) {
+                    Log.d(TAG1, "Nova localização recebida: (${location.latitude}, ${location.longitude})")
+                    
+                    // Primeiro, verifica se o usuário está em alguma rota ativa
+                    val activeRoutes = routes.value.filter { it.isActive }
+                    var isOnAnyRoute = false
+                    
+                    // Verifica todas as rotas ativas
+                    activeRoutes.forEach { route ->
+                        Log.d(TAG1, "Verificando rota ativa: ${route.name}")
+                        if (routeHelper.isLocationOnRoute(location, route)) {
+                            isOnAnyRoute = true
+                            Log.d(TAG1, "Usuário está na rota: ${route.name}")
+                        }
+                    }
+                    
+                    // Se não estiver em nenhuma rota, verifica desvios
+                    if (!isOnAnyRoute) {
+                        activeRoutes.forEach { route ->
+                            val deviationDistance = routeHelper.calculateDeviationDistance(location, route)
+                            Log.d(TAG1, "Desvio detectado na rota ${route.name}. Distância: $deviationDistance metros")
+                            
+                            // Emite evento de desvio
+                            _routeDeviationEvent.emit(
+                                RouteDeviation(
+                                    routeId = route.id ?: "",
+                                    routeName = route.name,
+                                    currentLocation = location,
+                                    lastKnownRoutePoint = routeHelper.lastKnownRoutePoint,
+                                    deviationDistance = deviationDistance.toDouble()
+                                )
+                            )
+                        }
+                    }
+                }
             }
         }
 
+        // Inicia o monitoramento de localização
         viewModelScope.launch {
-            currentLocation.combine(geofenceArea) { location, geofence -> // geofenceArea é o StateFlow
-                if (location != null && geofence != null) {
-                    geofenceHelperClass.isLocationInGeofence(location, geofence)
+            try {
+                locationService.getLocationUpdates().collect { location ->
+                    Log.d(TAG1, "Nova localização recebida: (${location.latitude}, ${location.longitude})")
+                    _currentLocation.value = location
+                }
+            } catch (e: Exception) {
+                Log.e(TAG1, "Erro ao obter atualizações de localização", e)
+            }
+        }
+
+        // Monitoramento de rota
+        viewModelScope.launch {
+            currentLocation.combine(selectedRoute) { location, route ->
+                Log.d(TAG1, "Verificando combinação - Localização: ${location != null}, Rota: ${route != null}")
+                
+                if (location != null && route != null) {
+                    Log.d(TAG1, "Verificando localização na rota: ${route.name}")
+                    Log.d(TAG1, "Localização atual: (${location.latitude}, ${location.longitude})")
+                    Log.d(TAG1, "Rota selecionada: ${route.name}, ID: ${route.id}")
+                    Log.d(TAG1, "Rota ativa: ${route.isActive}")
+                    Log.d(TAG1, "Polyline da rota: ${route.encodedPolyline?.take(50)}...")
+                    
+                    if (!route.isActive) {
+                        Log.d(TAG1, "Rota ${route.name} não está ativa, pulando verificação")
+                        return@combine true
+                    }
+                    
+                    val isOnRoute = routeHelper.isLocationOnRoute(location, route)
+                    val lastKnownPoint = routeHelper.getLastKnownRoutePoint()
+                    
+                    Log.d(TAG1, "Status da verificação: ${if (isOnRoute) "Na rota" else "Fora da rota"}")
+                    
+                    if (!isOnRoute) {
+                        // Calcula a distância do desvio
+                        val deviationDistance = lastKnownPoint?.let { point ->
+                            val results = FloatArray(1)
+                            Location.distanceBetween(
+                                location.latitude, location.longitude,
+                                point.latitude, point.longitude,
+                                results
+                            )
+                            results[0].toDouble()
+                        } ?: 0.0
+
+                        Log.d(TAG1, "Desvio detectado! Distância: $deviationDistance metros")
+                        Log.d(TAG1, "Último ponto conhecido na rota: (${lastKnownPoint?.latitude}, ${lastKnownPoint?.longitude})")
+
+                        // Emite evento de desvio
+                        _routeDeviationEvent.emit(
+                            RouteDeviation(
+                                routeId = route.id ?: "",
+                                routeName = route.name,
+                                currentLocation = location,
+                                lastKnownRoutePoint = lastKnownPoint,
+                                deviationDistance = deviationDistance
+                            )
+                        )
+                    }
+                    
+                    isOnRoute
                 } else {
+                    Log.d(TAG1, "Não é possível verificar rota: localização ou rota é nula")
+                    Log.d(TAG1, "Localização: ${location != null}, Rota: ${route != null}")
                     null
                 }
             }.collect { currentStatus ->
-                _isUserInsideGeofence.value = currentStatus
-                _isLocationOutOfGeofence.postValue(currentStatus == false) // Atualiza o LiveData
+                Log.d(TAG1, "Status da rota atualizado: $currentStatus")
+                _isLocationOnRoute.value = currentStatus
 
-                if (lastKnownGeofenceStatus == true && currentStatus == false) {
-                    val geofenceId = geofenceArea.value?.id ?: "Área Segura"
-                    _showExitNotificationEvent.emit(geofenceId)
+                if (lastKnownRouteStatus == true && currentStatus == false) {
+                    val routeName = selectedRoute.value?.name ?: "Rota"
+                    Log.d(TAG1, "Detectado desvio da rota: $routeName")
+                    _showRouteExitNotificationEvent.emit(routeName)
                 }
-                lastKnownGeofenceStatus = currentStatus
+                lastKnownRouteStatus = currentStatus
             }
         }
 
@@ -249,19 +363,13 @@ class MainViewModel(
 
 
     fun startLocationMonitoring() {
-        locationService.startLocationUpdates { location -> // Esta lambda de startLocationUpdates parece redundante
-            // se você já coleta de locationService.getLocationUpdates()
-            // Considere ter apenas um mecanismo de coleta.
-            handleLocationUpdate(location)
-        }
-        // Se locationService.getLocationUpdates() já emite para _currentLocation.value,
-        // e _currentLocation.value já está sendo combinado com _geofenceArea.value,
-        // então handleLocationUpdate pode não ser necessário da forma como está,
-        // ou sua lógica precisa ser integrada ao fluxo de `combine`.
+        Log.d(TAG1, "Iniciando monitoramento de localização")
+        // Não precisamos mais chamar startLocationUpdates() pois já estamos usando getLocationUpdates()
     }
 
     fun stopLocationMonitoring() {
-        locationService.stopLocationUpdates()
+        Log.d(TAG1, "Parando monitoramento de localização")
+        // Não precisamos mais chamar stopLocationUpdates() pois o Flow já é gerenciado pelo viewModelScope
     }
 
     private fun processAndSaveLocationRecord(location: Location) {
@@ -432,25 +540,21 @@ class MainViewModel(
     }
 
     fun loadRouteDetails(routeId: String) {
-        currentUserId?.let { userId ->
-            _isLoading.value = true // Ou um isLoading específico para detalhes da rota
-            firebaseRepository.getRouteById(userId, routeId) { route, exception ->
-                _isLoading.value = false
-                if (exception != null) {
-                    _error.value = "Falha ao carregar detalhes da rota: ${exception.message}"
-                    _selectedRoute.value = null
-                    Log.e(TAG, "Erro ao carregar rota $routeId", exception)
+        Log.d(TAG1, "Carregando detalhes da rota: $routeId")
+        viewModelScope.launch {
+            try {
+                val route = firebaseRepository.getRouteById(routeId)
+                if (route != null) {
+                    Log.d(TAG1, "Rota carregada com sucesso: ${route.name}")
+                    Log.d(TAG1, "Rota ativa: ${route.isActive}")
+                    Log.d(TAG1, "Polyline da rota: ${route.encodedPolyline?.take(50)}...")
+                    _selectedRoute.value = route
                 } else {
-                    _selectedRoute.value = route // route pode ser nulo se não encontrado
-                    if (route == null) {
-                        _error.value = "Rota não encontrada."
-                        Log.w(TAG, "Rota $routeId não encontrada para usuário $userId")
-                    }
+                    Log.e(TAG1, "Rota não encontrada: $routeId")
                 }
+            } catch (e: Exception) {
+                Log.e(TAG1, "Erro ao carregar rota: $routeId", e)
             }
-        } ?: run {
-            _error.value = "Usuário não logado para carregar detalhes da rota."
-            _selectedRoute.value = null
         }
     }
 
@@ -543,8 +647,9 @@ class MainViewModel(
                 _routeOperationStatus.value = RouteOperationStatus.Loading
                 val apiKey = "AIzaSyB3KoJSAscYJb_YG70Mw3dqiBVXjMm7Z-k" // Obtenha sua API Key do BuildConfig
 
-                if (apiKey.isEmpty() || apiKey == "AIzaSyB3KoJSAscYJb_YG70Mw3dqiBVXjMm7Z-k") {
+                if (apiKey.isEmpty() || apiKey != "AIzaSyB3KoJSAscYJb_YG70Mw3dqiBVXjMm7Z-k") {
                     Log.e(TAG1, "MAPS_API_KEY não configurada no BuildConfig.")
+                    Log.e(TAG1, apiKey.isEmpty().toString())
                     _routeOperationStatus.value = RouteOperationStatus.Error("Chave de API do Google Maps não configurada.")
                     return@launch
                 }

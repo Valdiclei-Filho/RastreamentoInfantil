@@ -1,0 +1,51 @@
+type User @table {
+  userId: UUID!
+  displayName: String!
+  email: String!
+  cpf: String!
+  password: String!
+  role: String!
+  photoUrl: String
+  phoneNumber: String
+}
+
+type Relationship @table {
+  relationshipId: UUID!
+  guardian: User!
+  monitored: User!
+  relationshipType: String!
+  invitationStatus: String
+}
+
+type Geofence @table {
+  geofenceId: UUID!
+  name: String!
+  guardian: User!
+  geofenceType: String!
+  createdAt: Timestamp!
+  description: String
+  latitude: Float
+  longitude: Float
+  radius: Float
+  coordinates: String # JSON array of LatLng objects
+}
+
+type LocationRecord @table {
+  locationRecordId: UUID!
+  monitored: User!
+  latitude: Float!
+  longitude: Float!
+  timestamp: Timestamp!
+  address: String
+}
+
+type Alert @table {
+  alertId: UUID!
+  monitored: User!
+  geofence: Geofence!
+  timestamp: Timestamp!
+  alertType: String!
+  status: String
+  guardianAction: String
+  notes: String
+}

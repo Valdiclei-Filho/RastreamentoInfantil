@@ -33,8 +33,10 @@ import androidx.lifecycle.lifecycleScope // Para launchWhenStarted
 import com.example.rastreamentoinfantil.helper.NotificationHelper
 import kotlinx.coroutines.flow.collectLatest // Para coletar o SharedFlow
 import kotlinx.coroutines.launch
+import com.example.rastreamentoinfantil.helper.RouteHelper
 
 const val GEOFENCE_CHANNEL_ID = "geofence_channel_id"
+const val ROUTE_CHANNEL_ID = "route_channel_id"
 
 class MainActivity : ComponentActivity(){
 
@@ -125,20 +127,26 @@ class MainActivity : ComponentActivity(){
         val firebaseRepository = FirebaseRepository()
         val locationService = LocationService(this)
         val geocodingService = GeocodingService(this)
-        val geofenceHelper = GeofenceHelper() // Crie uma instância
-        val factory = MainViewModelFactory(application, firebaseRepository, locationService, geocodingService, geofenceHelper)
+        val geofenceHelper = GeofenceHelper()
+        val routeHelper = RouteHelper()
+        val factory = MainViewModelFactory(application, firebaseRepository, locationService, geocodingService, geofenceHelper, routeHelper)
 
-        // Corrigido: inicializar a propriedade da classe, não uma variável local
         mainViewModel = ViewModelProvider(this, factory).get(MainViewModel::class.java)
 
-        createNotificationChannel() // Crie o canal de notificação
-        askNotificationPermission() // Solicite a permissão
+        createNotificationChannels()
+        askNotificationPermission()
 
         FirebaseApp.initializeApp(this)
 
-        lifecycleScope.launch { // Use launch, ou launchWhenStarted se preferir
+        lifecycleScope.launch {
             mainViewModel.showExitNotificationEvent.collectLatest { geofenceId ->
                 NotificationHelper.showGeofenceExitNotification(this@MainActivity, geofenceId)
+            }
+        }
+
+        lifecycleScope.launch {
+            mainViewModel.showRouteExitNotificationEvent.collectLatest { routeName ->
+                NotificationHelper.showRouteExitNotification(this@MainActivity, routeName)
             }
         }
 
@@ -154,20 +162,31 @@ class MainActivity : ComponentActivity(){
         }
     }
 
-    private fun createNotificationChannel() {
+    private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = getString(R.string.channel_name) // Você precisará adicionar isso em strings.xml
-            val descriptionText = getString(R.string.channel_description) // E isso também
-            val importance = NotificationManager.IMPORTANCE_HIGH // Alta importância para alertas
-            val channel = NotificationChannel(GEOFENCE_CHANNEL_ID, name, importance).apply {
-                description = descriptionText
+            // Canal para geofence
+            val geofenceChannel = NotificationChannel(
+                GEOFENCE_CHANNEL_ID,
+                "Alertas de Geofence",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notificações de entrada/saída de áreas seguras"
                 enableVibration(true)
             }
-            // Registre o canal com o sistema
-            val notificationManager: NotificationManager =
-                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-            println("Canal de notificação criado.")
+
+            // Canal para rota
+            val routeChannel = NotificationChannel(
+                ROUTE_CHANNEL_ID,
+                "Alertas de Rota",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notificações de desvio de rota"
+                enableVibration(true)
+            }
+
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(geofenceChannel)
+            notificationManager.createNotificationChannel(routeChannel)
         }
     }
 

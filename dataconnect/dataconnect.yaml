@@ -1,0 +1,12 @@
+specVersion: "v1"
+serviceId: "rastreamento-7a507-service"
+location: "us-central1"
+schema:
+  source: "./schema"
+  datasource:
+    postgresql:
+      database: "rastreamento-7a507-database"
+      cloudSql:
+        instanceId: "rastreamento-7a507-instance"
+      # schemaValidation: "COMPATIBLE"
+connectorDirs: ["./connector"]

@@ -161,7 +161,10 @@ fun MapScreen(
                         clickable = true,
                         onClick = {
                             Log.d("MapScreen", "Rota (com polyline) clicada: ${route.name} - ID: ${route.id}")
-                            // mainViewModel.loadRouteDetails(route.id!!)
+                            route.id?.let { routeId ->
+                                Log.d("MapScreen", "Carregando detalhes da rota: $routeId")
+                                mainViewModel.loadRouteDetails(routeId)
+                            } ?: Log.e("MapScreen", "ID da rota é nulo!")
                         }
                     )
                 } else {

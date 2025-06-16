@@ -17,7 +17,6 @@ import com.example.rastreamentoinfantil.viewmodel.LoginViewModelFactory
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 import com.google.firebase.auth.FirebaseAuth
 
-// ✅ Definições das rotas
 object AppDestinations {
     const val LOGIN_SCREEN = "login"
     const val REGISTER_SCREEN = "register"
@@ -85,21 +84,23 @@ fun Navigation(
         composable(AppDestinations.REGISTER_SCREEN) {
             RegisterScreen(loginViewModel, navController)
         }
+        composable(AppDestinations.MAIN_SCREEN) {
+            MainScreen(mainViewModel, navController)
+        }
 
         composable(AppDestinations.MAP_SCREEN) {
             MapScreen(
                 modifier = Modifier,
                 mainViewModel = mainViewModel,
-                navController = navController
+                navController = navController // Adicionado navController
             )
         }
 
-        // ⚙️ Tela de configuração de geofence (placeholder se não tiver conteúdo ainda)
         composable(AppDestinations.GEOFENCE_CONFIG_SCREEN) {
-            // GeofenceConfigScreen(navController) // se desejar implementar
+            // GeofenceConfigScreen(mainViewModel, navController) // Exemplo se você criar esta tela
+            // Por enquanto, vazio como no seu original
         }
 
-        // 🗺️ Telas de gerenciamento de rotas
         composable(AppDestinations.ROUTE_LIST_SCREEN) {
             RoutesListScreen(navController = navController, mainViewModel = mainViewModel)
         }
@@ -118,7 +119,6 @@ fun Navigation(
             RouteEditScreen(navController = navController, mainViewModel = mainViewModel, routeId = routeId)
         }
 
-        // 👪 Tela de família
         composable(AppDestinations.FAMILY_SCREEN) {
             FamilyScreen(navController = navController)
         }
