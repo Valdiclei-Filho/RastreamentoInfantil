@@ -35,6 +35,7 @@ import com.example.rastreamentoinfantil.helper.NotificationHelper
 import kotlinx.coroutines.flow.collectLatest // Para coletar o SharedFlow
 import kotlinx.coroutines.launch
 import com.example.rastreamentoinfantil.helper.RouteHelper
+import kotlinx.coroutines.Dispatchers
 
 const val GEOFENCE_CHANNEL_ID = "geofence_channel_id"
 const val ROUTE_CHANNEL_ID = "route_channel_id"
@@ -76,6 +77,7 @@ class MainActivity : ComponentActivity(){
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d("MainActivity", "onCreate iniciado")
 
         // Inicializa o Firebase primeiro
         FirebaseApp.initializeApp(this)
@@ -93,26 +95,6 @@ class MainActivity : ComponentActivity(){
 
         mainViewModel = ViewModelProvider(this, factory).get(MainViewModel::class.java)
 
-        // Configura os observadores de eventos
-        lifecycleScope.launch {
-            mainViewModel.showExitNotificationEvent.collectLatest { geofenceId ->
-                NotificationHelper.showGeofenceExitNotification(this@MainActivity, geofenceId)
-            }
-        }
-
-        lifecycleScope.launch {
-            mainViewModel.showRouteExitNotificationEvent.collectLatest { routeName ->
-                NotificationHelper.showRouteExitNotification(this@MainActivity, routeName)
-            }
-        }
-
-        // Verifica permissões antes de iniciar o monitoramento
-        if (hasLocationPermissions()) {
-            mainViewModel.startLocationMonitoring()
-        } else {
-            requestLocationPermissions()
-        }
-
         setContent {
             RastreamentoInfantilTheme {
                 Surface(
@@ -123,6 +105,30 @@ class MainActivity : ComponentActivity(){
                 }
             }
         }
+
+        // Inicialize monitoramento e observadores em background
+        lifecycleScope.launch(Dispatchers.IO) {
+            Log.d("MainActivity", "Iniciando observadores de eventos em background")
+            launch {
+                mainViewModel.showExitNotificationEvent.collectLatest { geofenceId ->
+                    NotificationHelper.showGeofenceExitNotification(this@MainActivity, geofenceId)
+                }
+            }
+            launch {
+                mainViewModel.showRouteExitNotificationEvent.collectLatest { routeName ->
+                    NotificationHelper.showRouteExitNotification(this@MainActivity, routeName)
+                }
+            }
+            // Verifica permissões antes de iniciar o monitoramento
+            if (hasLocationPermissions()) {
+                Log.d("MainActivity", "Permissões OK, iniciando monitoramento de localização")
+                mainViewModel.startLocationMonitoring()
+            } else {
+                Log.d("MainActivity", "Solicitando permissões de localização")
+                requestLocationPermissions()
+            }
+        }
+        Log.d("MainActivity", "onCreate finalizado")
     }
 
     private fun createNotificationChannels() {

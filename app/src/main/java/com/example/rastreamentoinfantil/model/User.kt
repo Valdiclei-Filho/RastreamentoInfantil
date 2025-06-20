@@ -7,10 +7,11 @@ data class User(
     val name: String? = null,
     val email: String? = null,
     val type: String? = null,
-    val familyId: String? = null
+    val familyId: String? = null,
+    val acceptedTerms: Boolean = false
 ) {
     // Construtor sem argumentos para o Firestore
-    constructor() : this(null, null, null, null, null)
+    constructor() : this(null, null, null, null, null, false)
 }
 
 data class Family(

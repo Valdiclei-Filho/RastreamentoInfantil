@@ -59,6 +59,11 @@ fun MapScreen(
     mainViewModel: MainViewModel,
     navController: NavHostController
 ) {
+    // Sincronizar usuário logado ao abrir a tela
+    LaunchedEffect(Unit) {
+        mainViewModel.syncCurrentUser()
+    }
+
     // Criar o LoginViewModel no contexto @Composable
     val loginViewModel = ViewModelProvider(
         LocalContext.current as MainActivity,

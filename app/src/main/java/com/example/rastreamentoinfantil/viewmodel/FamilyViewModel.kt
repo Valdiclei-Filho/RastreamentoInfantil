@@ -9,6 +9,9 @@ import com.example.rastreamentoinfantil.model.FamilyInvite
 import com.example.rastreamentoinfantil.model.User
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
 import java.util.UUID
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class FamilyViewModel(
     private val repository: FirebaseRepository,
@@ -40,7 +43,10 @@ class FamilyViewModel(
             _message.postValue("Erro: usuário não autenticado")
             _loading.postValue(false)
         } else {
-            loadFamilyData()
+            // Otimizar: carregar dados em background
+            viewModelScope.launch(Dispatchers.IO) {
+                loadFamilyData()
+            }
         }
     }
 
@@ -56,56 +62,53 @@ class FamilyViewModel(
         currentLoadUserId = currentUserId
         clearData()
         _loading.postValue(true)
-        
         Log.d("FamilyViewModel", "Carregando dados da família para usuário: $currentUserId, email: $currentUserEmail")
 
-        repository.getUserById(currentUserId) { user, error ->
-            // Só atualiza se o callback for do usuário atual carregado
-            if (currentLoadUserId != currentUserId) {
-                // Callback desatualizado, ignorar
-                Log.d("FamilyViewModel", "Callback desatualizado, ignorando")
-                return@getUserById
-            }
-
-            if (error != null) {
-                Log.e("FamilyViewModel", "Erro ao buscar usuário", error)
-                _message.postValue("Erro ao buscar usuário: ${error.message}")
-                _loading.postValue(false)
-                return@getUserById
-            }
-
-            Log.d("FamilyViewModel", "Usuário encontrado: ${user?.name}, familyId: ${user?.familyId}")
-
-            if (user == null || user.familyId.isNullOrEmpty()) {
-                // Usuário sem família: carregar convites
-                Log.d("FamilyViewModel", "Usuário sem família, buscando convites para: $currentUserEmail")
-                repository.getFamilyInvitesForUser(currentUserEmail) { invites, err ->
-                    if (currentLoadUserId != currentUserId) return@getFamilyInvitesForUser
-
-                    _loading.postValue(false)
-                    if (err != null) {
-                        Log.e("FamilyViewModel", "Erro ao buscar convites", err)
-                        _message.postValue("Erro ao buscar convites: ${err.message}")
-                    } else {
-                        Log.d("FamilyViewModel", "Convites carregados: ${invites?.size ?: 0}")
-                        _invites.postValue(invites ?: emptyList())
-                    }
+        // Otimizar: buscar usuário em background
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.getUserById(currentUserId) { user, error ->
+                // Só atualiza se o callback for do usuário atual carregado
+                if (currentLoadUserId != currentUserId) {
+                    Log.d("FamilyViewModel", "Callback desatualizado, ignorando")
+                    return@getUserById
                 }
-            } else {
-                // Usuário com família: carregar família e membros
-                val familyId = user.familyId
-                Log.d("FamilyViewModel", "Usuário com família, carregando família: $familyId")
-                repository.getFamilyDetails(familyId) { family, members, err ->
-                    if (currentLoadUserId != currentUserId) return@getFamilyDetails
 
+                if (error != null) {
+                    Log.e("FamilyViewModel", "Erro ao buscar usuário", error)
+                    _message.postValue("Erro ao buscar usuário: ${error.message}")
                     _loading.postValue(false)
-                    if (err != null) {
-                        Log.e("FamilyViewModel", "Erro ao carregar família", err)
-                        _message.postValue("Erro ao carregar família: ${err.message}")
-                    } else {
-                        Log.d("FamilyViewModel", "Família carregada: ${family?.name}, membros: ${members?.size ?: 0}")
-                        _family.postValue(family)
-                        _members.postValue(members ?: emptyList())
+                    return@getUserById
+                }
+
+                Log.d("FamilyViewModel", "Usuário encontrado: ${user?.name}, familyId: ${user?.familyId}")
+
+                if (user == null || user.familyId.isNullOrEmpty()) {
+                    Log.d("FamilyViewModel", "Usuário sem família, buscando convites para: $currentUserEmail")
+                    repository.getFamilyInvitesForUser(currentUserEmail) { invites, err ->
+                        if (currentLoadUserId != currentUserId) return@getFamilyInvitesForUser
+                        _loading.postValue(false)
+                        if (err != null) {
+                            Log.e("FamilyViewModel", "Erro ao buscar convites", err)
+                            _message.postValue("Erro ao buscar convites: ${err.message}")
+                        } else {
+                            Log.d("FamilyViewModel", "Convites carregados: ${invites?.size ?: 0}")
+                            _invites.postValue(invites ?: emptyList())
+                        }
+                    }
+                } else {
+                    val familyId = user.familyId
+                    Log.d("FamilyViewModel", "Usuário com família, carregando família: $familyId")
+                    repository.getFamilyDetails(familyId) { family, members, err ->
+                        if (currentLoadUserId != currentUserId) return@getFamilyDetails
+                        _loading.postValue(false)
+                        if (err != null) {
+                            Log.e("FamilyViewModel", "Erro ao carregar família", err)
+                            _message.postValue("Erro ao carregar família: ${err.message}")
+                        } else {
+                            Log.d("FamilyViewModel", "Família carregada: ${family?.name}, membros: ${members?.size ?: 0}")
+                            _family.postValue(family)
+                            _members.postValue(members ?: emptyList())
+                        }
                     }
                 }
             }

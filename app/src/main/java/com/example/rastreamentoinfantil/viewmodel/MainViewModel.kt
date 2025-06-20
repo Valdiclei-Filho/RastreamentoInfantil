@@ -40,6 +40,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
 import com.example.rastreamentoinfantil.helper.RouteHelper
+import com.google.firebase.auth.FirebaseAuth
 
 class MainViewModel(
     application: Application,
@@ -337,27 +338,29 @@ class MainViewModel(
         }
     }
     fun addOrUpdateRoute(route: Route) {
-        currentUserId?.let { userId ->
+        val firebaseUser = FirebaseAuth.getInstance().currentUser
+        Log.d(TAG, "addOrUpdateRoute: FirebaseAuth.currentUser = ${firebaseUser?.uid}, email = ${firebaseUser?.email}")
+        val userId = firebaseUser?.uid
+        userId?.let {
             viewModelScope.launch {
                 _routeOperationStatus.value = RouteOperationStatus.Loading
-                firebaseRepository.saveRoute(userId, route) { routeId, exception -> // routeId é String?, exception é Exception?
-                    Log.d(TAG, "Usuario id desgracado: $userId")
+                firebaseRepository.saveRoute(it, route) { routeId, exception ->
+                    Log.d(TAG, "Usuario id passado para o repo: $it")
                     if (exception != null) {
                         _routeOperationStatus.value = RouteOperationStatus.Error(exception.message ?: "Falha ao salvar rota.")
-                        Log.e(TAG, "Erro ao salvar rota ${route.id} para o usuário $userId", exception)
+                        Log.e(TAG, "Erro ao salvar rota ${route.id} para o usuário $it", exception)
                     } else if (routeId != null) { // Sucesso se routeId não for nulo
                         _routeOperationStatus.value = RouteOperationStatus.Success("Rota salva com sucesso!")
-                        loadUserRoutes(userId) // Recarregar rotas após salvar
+                        loadUserRoutes(it) // Recarregar rotas após salvar
                     } else {
-                        // Caso inesperado: exception é null mas routeId também é null (não deveria acontecer com a lógica atual do repo)
                         _routeOperationStatus.value = RouteOperationStatus.Error("Falha desconhecida ao salvar rota.")
-                        Log.e(TAG, "Erro desconhecido ao salvar rota ${route.id} para o usuário $userId")
+                        Log.e(TAG, "Erro desconhecido ao salvar rota ${route.id} para o usuário $it")
                     }
                 }
             }
         } ?: run {
             _routeOperationStatus.value = RouteOperationStatus.Error("Usuário não logado. Não é possível salvar a rota.")
-            Log.w(TAG, "Tentativa de salvar rota sem usuário logado.")
+            Log.w(TAG, "Tentativa de salvar rota sem usuário logado. FirebaseAuth.currentUser = $firebaseUser")
         }
     }
     fun deleteRoute(routeId: String) {
@@ -589,6 +592,21 @@ class MainViewModel(
         // Resetar o estado de autenticação
         currentUserId = null
         Log.d(TAG, "Estado de autenticação resetado")
+    }
+
+    /**
+     * Sincroniza o usuário logado do FirebaseAuth com o campo currentUserId do ViewModel.
+     * Deve ser chamada ao abrir telas sensíveis (ex: edição de rota, mapa, etc).
+     */
+    fun syncCurrentUser() {
+        val firebaseUser = FirebaseAuth.getInstance().currentUser
+        if (firebaseUser != null) {
+            currentUserId = firebaseUser.uid
+            Log.d(TAG1, "syncCurrentUser: Usuário sincronizado: ${firebaseUser.uid}, email: ${firebaseUser.email}")
+        } else {
+            currentUserId = null
+            Log.w(TAG1, "syncCurrentUser: Nenhum usuário logado!")
+        }
     }
 
 }

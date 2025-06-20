@@ -28,6 +28,7 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
+import com.google.firebase.auth.FirebaseAuth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,6 +57,25 @@ fun RouteEditScreen(
     var displayableEncodedPolyline by remember { mutableStateOf<String?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Verificação de autenticação
+    val firebaseUser = FirebaseAuth.getInstance().currentUser
+    if (firebaseUser == null) {
+        Log.w("RouteEditScreen", "Tentativa de acessar criação de rota sem usuário logado!")
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("Usuário não autenticado. Faça login para criar uma rota.")
+        }
+        return
+    }
+
+    // Sincronizar usuário logado ao abrir a tela
+    LaunchedEffect(Unit) {
+        mainViewModel.syncCurrentUser()
+    }
 
     // Carregar detalhes da rota se estiver editando
     LaunchedEffect(routeId) {
@@ -120,6 +140,8 @@ fun RouteEditScreen(
                 title = { Text(if (routeId == null) "Criar Nova Rota" else "Editar Rota") },
                 actions = {
                     IconButton(onClick = {
+                        val firebaseUser = FirebaseAuth.getInstance().currentUser
+                        Log.d("RouteEditScreen", "Clique em salvar rota: FirebaseAuth.currentUser = ${firebaseUser?.uid}, email = ${firebaseUser?.email}")
                         val finalOrigin = originPoint?.let { RoutePoint(latitude = it.latitude, longitude = it.longitude, address = "Origem") } // Placeholder para endereço
                         val finalDestination = destinationPoint?.let { RoutePoint(latitude = it.latitude, longitude = it.longitude, address = "Destino") } // Placeholder
                         val finalWaypoints = routePoints.map { RoutePoint(latitude = it.latitude, longitude = it.longitude) }

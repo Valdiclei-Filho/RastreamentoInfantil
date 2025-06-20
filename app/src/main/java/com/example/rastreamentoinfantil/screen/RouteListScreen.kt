@@ -24,6 +24,10 @@ fun RoutesListScreen(
     navController: NavController,
     mainViewModel: MainViewModel // Assumindo que será passado ou obtido via hiltViewModel()
 ) {
+    LaunchedEffect(Unit) {
+        mainViewModel.syncCurrentUser()
+    }
+
     val routes by mainViewModel.routes.collectAsStateWithLifecycle()
     val isLoading by mainViewModel.isLoadingRoutes.collectAsStateWithLifecycle()
     val routeOpStatus by mainViewModel.routeOperationStatus.collectAsStateWithLifecycle()

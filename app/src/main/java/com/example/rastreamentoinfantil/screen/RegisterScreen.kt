@@ -2,6 +2,7 @@ package com.example.rastreamentoinfantil.screen
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,8 +10,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,6 +41,8 @@ fun RegisterScreen(
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var showDialog by remember { mutableStateOf(false) }
+    var acceptedTerms by remember { mutableStateOf(false) }
+    var showTermsDialog by remember { mutableStateOf(false) }
 
     val isLoading by loginViewModel.isLoading.observeAsState(false)
     val error by loginViewModel.error.observeAsState()
@@ -104,6 +109,30 @@ fun RegisterScreen(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = acceptedTerms,
+                    onCheckedChange = { acceptedTerms = it }
+                )
+                TextButton(onClick = { showTermsDialog = true }) {
+                    Text("Li e aceito o Termo de Uso e Privacidade")
+                }
+            }
+            if (showTermsDialog) {
+                AlertDialog(
+                    onDismissRequest = { showTermsDialog = false },
+                    title = { Text("Termo de Aceite") },
+                    text = {
+                        Text("Ao criar uma conta, você concorda com os Termos de Uso e a Política de Privacidade do aplicativo Rastreamento Infantil. Suas informações serão utilizadas apenas para fins de funcionamento do app, conforme descrito na política. Você pode solicitar a exclusão dos seus dados a qualquer momento.")
+                    },
+                    confirmButton = {
+                        Button(onClick = { showTermsDialog = false }) {
+                            Text("Fechar")
+                        }
+                    }
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = {
                     // Validações locais antes de chamar a ViewModel
@@ -115,11 +144,13 @@ fun RegisterScreen(
                         id = UUID.randomUUID().toString(),
                         name = name,
                         email = email,
-                        type = null
+                        type = null,
+                        acceptedTerms = acceptedTerms
                     )
                     loginViewModel.registerUser(user, password)
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                enabled = acceptedTerms
             ) {
                 Text("Cadastrar-se")
             }

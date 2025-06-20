@@ -14,6 +14,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +30,9 @@ import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 
 @Composable
 fun MainScreen(mainViewModel: MainViewModel, navController: NavController) {
+    LaunchedEffect(Unit) {
+        mainViewModel.syncCurrentUser()
+    }
     val locationRecords by mainViewModel.locationRecords.observeAsState(emptyList())
     val isLoading by mainViewModel.isLoading.observeAsState(false)
     val error by mainViewModel.error.observeAsState()
