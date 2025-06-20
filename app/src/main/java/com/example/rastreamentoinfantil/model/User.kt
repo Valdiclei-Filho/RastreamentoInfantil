@@ -3,22 +3,31 @@ package com.example.rastreamentoinfantil.model
 import java.util.UUID
 
 data class User(
-    var id: String = "",
+    var id: String? = null,
     val name: String? = null,
     val email: String? = null,
     val type: String? = null,
     val familyId: String? = null
-)
+) {
+    // Construtor sem argumentos para o Firestore
+    constructor() : this(null, null, null, null, null)
+}
 
 data class Family(
-    val id: String = "",
+    var id: String? = null,
     val name: String = "",
     val responsibleId: String = ""
-)
+) {
+    // Construtor sem argumentos para o Firestore
+    constructor() : this(null, "", "")
+}
 
 data class FamilyInvite(
-    val id: String,
-    val familyName: String,
-    val familyId: String,
-    val recipientEmail: String
-)
+    var id: String? = null,
+    val familyName: String = "",
+    val familyId: String = "",
+    val recipientEmail: String = ""
+) {
+    // Construtor sem argumentos para o Firestore
+    constructor() : this(null, "", "", "")
+}

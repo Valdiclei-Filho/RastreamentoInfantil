@@ -30,25 +30,16 @@ fun LoginScreen(
     loginViewModel: LoginViewModel,
     navController: NavHostController
 ) {
-    var email by remember { mutableStateOf("teste1@gmail.com") }
-    var password by remember { mutableStateOf("teste1") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     val user by loginViewModel.user.observeAsState()
     val isLoading by loginViewModel.isLoading.observeAsState(false)
     val error by loginViewModel.error.observeAsState()
     var showDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(user) {
-        user?.let {
-            when (it.type) {
-                null, "responsavel" -> navController.navigate("mapscreen") {
-                    popUpTo("login") { inclusive = true }
-                }
-                "crianca" -> navController.navigate("child") {
-                    popUpTo("login") { inclusive = true }
-                }
-            }
-        }
-    }
+    // A navegação agora é controlada pelo Navigation.kt baseada no estado de autenticação
+    // Não precisamos mais navegar automaticamente aqui
+    // O Navigation.kt observa o estado isLoggedIn e redireciona automaticamente
 
     // Controla a exibição do diálogo conforme o erro no ViewModel
     LaunchedEffect(error) {

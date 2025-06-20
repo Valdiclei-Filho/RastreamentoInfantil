@@ -38,8 +38,20 @@ class FirebaseRepository {
             .get()
             .addOnSuccessListener { document ->
                 if (document != null && document.exists()) {
-                    val user = document.toObject(User::class.java)
-                    callback(user, null)
+                    try {
+                        val user = document.toObject(User::class.java)
+                        user?.let {
+                            // Garante que o ID seja sempre definido com o ID do documento
+                            it.id = document.id
+                            callback(it, null)
+                        } ?: run {
+                            Log.w(TAG, "Falha ao converter documento para User. Documento: ${document.data}")
+                            callback(null, Exception("Falha ao converter documento para User"))
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Erro ao converter documento para User", e)
+                        callback(null, e)
+                    }
                 } else {
                     callback(null, null) // Documento não encontrado, sem erro
                 }
@@ -66,8 +78,10 @@ class FirebaseRepository {
                 if (task.isSuccessful) {
                     val firebaseUser = auth.currentUser
                     firebaseUser?.let {
+                        // Garante que o ID seja definido com o UID do Firebase Auth
+                        val userToSave = user.copy(id = it.uid)
                         firestore.collection(USERS_COLLECTION).document(it.uid)
-                            .set(user)
+                            .set(userToSave)
                             .addOnSuccessListener {
                                 Log.d(TAG, "Usuário criado com sucesso no Firestore: ${firebaseUser.uid}")
                                 callback(true, null)
@@ -140,7 +154,15 @@ class FirebaseRepository {
             .get()
             .addOnSuccessListener { result ->
                 val records = result.documents.mapNotNull { document ->
-                    document.toObject(LocationRecord::class.java)
+                    try {
+                        document.toObject(LocationRecord::class.java)?.apply {
+                            // Garante que o ID seja sempre definido com o ID do documento
+                            this.id = document.id
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Erro ao converter documento para LocationRecord", e)
+                        null
+                    }
                 }
                 Log.d(TAG, "Registros de localização obtidos para o usuário $userId: ${records.size} encontrados.")
                 callback(records, null)
@@ -205,7 +227,10 @@ class FirebaseRepository {
             .addOnSuccessListener { document ->
                 if (document != null && document.exists()) {
                     try {
-                        val geofence = document.toObject(Geofence::class.java)
+                        val geofence = document.toObject(Geofence::class.java)?.apply {
+                            // Garante que o ID seja sempre definido com o ID do documento
+                            this.id = document.id
+                        }
                         if (geofence != null) {
                             Log.d(TAG, "Geofence ativa obtida para o usuário $userId: ${geofence.name} (ID: ${geofence.id})")
                             onComplete(geofence, null)
@@ -248,7 +273,7 @@ class FirebaseRepository {
             }
     }
 
-        fun fetchUserData(callback: (User?, Exception?) -> Unit) {
+    fun fetchUserData(callback: (User?, Exception?) -> Unit) {
         val currentFirebaseUser = auth.currentUser
         if (currentFirebaseUser == null) {
             Log.w(TAG, "fetchUserData: Usuário não logado.")
@@ -260,10 +285,21 @@ class FirebaseRepository {
             .get()
             .addOnSuccessListener { document ->
                 if (document != null && document.exists()) {
-                    val user = document.toObject(User::class.java)
-                     user?.id = document.id
-                    Log.d(TAG, "Dados do usuário $userId obtidos: ${user?.name}")
-                    callback(user, null)
+                    try {
+                        val user = document.toObject(User::class.java)
+                        user?.let {
+                            // Garante que o ID seja sempre definido com o ID do documento
+                            it.id = document.id
+                            Log.d(TAG, "Dados do usuário $userId obtidos: ${it.name}")
+                            callback(it, null)
+                        } ?: run {
+                            Log.w(TAG, "Falha ao converter documento para User. Documento: ${document.data}")
+                            callback(null, Exception("Falha ao converter dados do usuário."))
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Erro ao converter documento para User", e)
+                        callback(null, e)
+                    }
                 } else {
                     Log.w(TAG, "Nenhum documento de usuário encontrado no Firestore para o ID (Auth): $userId")
                     callback(null, null)
@@ -282,15 +318,17 @@ class FirebaseRepository {
             return
         }
 
-        val entryId = notificationEntry.id ?: run {
-            Log.w(TAG, "saveNotificationToHistory: ID da entrada de notificação está vazio. Não será salvo.")
-            onComplete(false, IllegalArgumentException("ID da entrada de notificação não pode ser nulo."))
-            return
+        // Gera um ID se não existir
+        val entryId = notificationEntry.id ?: UUID.randomUUID().toString()
+        val entryToSave = if (notificationEntry.id == null) {
+            notificationEntry.copy(id = entryId)
+        } else {
+            notificationEntry
         }
 
         firestore.collection(USERS_COLLECTION).document(userId)
             .collection(NOTIFICATION_HISTORY_COLLECTION).document(entryId)
-            .set(notificationEntry)
+            .set(entryToSave)
             .addOnSuccessListener {
                 Log.d(TAG, "Notificação '$entryId' salva no histórico para o usuário $userId")
                 onComplete(true, null)
@@ -314,8 +352,15 @@ class FirebaseRepository {
             .get()
             .addOnSuccessListener { documents ->
                 val historyList = documents.mapNotNull { document ->
-                    document.toObject(NotificationHistoryEntry::class.java)
-                     .apply { this.id = document.id }
+                    try {
+                        document.toObject(NotificationHistoryEntry::class.java)?.apply {
+                            // Garante que o ID seja sempre definido com o ID do documento
+                            this.id = document.id
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Erro ao converter documento para NotificationHistoryEntry", e)
+                        null
+                    }
                 }
                 Log.d(TAG, "Histórico de notificações obtido para o usuário $userId: ${historyList.size} entradas.")
                 onComplete(historyList, null)
@@ -367,8 +412,14 @@ class FirebaseRepository {
             .get()
             .addOnSuccessListener { documents ->
                 val routesList = documents.mapNotNull { document ->
-                    document.toObject(Route::class.java)?.apply {
-                        this.id = document.id
+                    try {
+                        document.toObject(Route::class.java)?.apply {
+                            // Garante que o ID seja sempre definido com o ID do documento
+                            this.id = document.id
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Erro ao converter documento para Route", e)
+                        null
                     }
                 }
                 Log.d(TAG, "Rotas obtidas para o usuário $userId: ${routesList.size} encontradas.")
@@ -391,21 +442,27 @@ class FirebaseRepository {
             .get()
             .addOnSuccessListener { document ->
                 if (document != null && document.exists()) {
-                    val route = document.toObject(Route::class.java)?.apply {
-                        this.id = document.id
-                    }
-                    if (route != null) {
-                        Log.d(
-                            TAG,
-                            "Rota (ID: $routeId) obtida para o usuário $userId: ${route.name}"
-                        )
-                        onComplete(route, null)
-                    } else {
-                        Log.w(
-                            TAG,
-                            "Falha ao converter documento para Rota. ID: $routeId, Usuário: $userId. Documento: ${document.data}"
-                        )
-                        onComplete(null, Exception("Falha ao converter dados da rota."))
+                    try {
+                        val route = document.toObject(Route::class.java)?.apply {
+                            // Garante que o ID seja sempre definido com o ID do documento
+                            this.id = document.id
+                        }
+                        if (route != null) {
+                            Log.d(
+                                TAG,
+                                "Rota (ID: $routeId) obtida para o usuário $userId: ${route.name}"
+                            )
+                            onComplete(route, null)
+                        } else {
+                            Log.w(
+                                TAG,
+                                "Falha ao converter documento para Rota. ID: $routeId, Usuário: $userId. Documento: ${document.data}"
+                            )
+                            onComplete(null, Exception("Falha ao converter dados da rota."))
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Erro ao converter documento para Route", e)
+                        onComplete(null, e)
                     }
                 } else {
                     Log.d(TAG, "Nenhuma rota encontrada com ID: $routeId para o usuário $userId")
@@ -458,5 +515,204 @@ class FirebaseRepository {
                 Log.e(TAG, "Erro ao atualizar status da rota (ID: $routeId) para o usuário $userId", e)
                 onComplete(false, e)
             }
+    }
+
+    fun createFamily(family: Family, callback: (Boolean, String?) -> Unit) {
+        // Gera um ID se não existir
+        val familyId = family.id ?: UUID.randomUUID().toString()
+        val familyToSave = family.copy(id = familyId)
+        
+        firestore.collection(FAMILIES_COLLECTION).document(familyId)
+            .set(familyToSave)
+            .addOnSuccessListener {
+                // Atualizar o usuário com o familyId
+                firestore.collection(USERS_COLLECTION).document(family.responsibleId)
+                    .update("familyId", familyId)
+                    .addOnSuccessListener {
+                        callback(true, null)
+                    }
+                    .addOnFailureListener { e ->
+                        callback(false, "Erro ao associar família ao usuário: ${e.message}")
+                    }
+            }
+            .addOnFailureListener { e ->
+                callback(false, "Erro ao criar família: ${e.message}")
+            }
+    }
+
+    fun getFamilyInvitesForUser(email: String, callback: (List<FamilyInvite>?, Exception?) -> Unit) {
+        Log.d(TAG, "Buscando convites para email: $email")
+        
+        if (email.isEmpty()) {
+            Log.w(TAG, "Email está vazio, retornando lista vazia")
+            callback(emptyList(), null)
+            return
+        }
+        
+        firestore.collection(INVITES_COLLECTION)
+            .whereEqualTo("recipientEmail", email)
+            .get()
+            .addOnSuccessListener { result ->
+                Log.d(TAG, "Consulta de convites executada. Documentos encontrados: ${result.size()}")
+                
+                val invites = result.documents.mapNotNull { document ->
+                    try {
+                        Log.d(TAG, "Processando documento de convite: ${document.id}")
+                        document.toObject(FamilyInvite::class.java)?.apply {
+                            // Garante que o ID seja sempre definido com o ID do documento
+                            this.id = document.id
+                            Log.d(TAG, "Convite processado: familyName=$familyName, familyId=$familyId, recipientEmail=$recipientEmail")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Erro ao converter documento para FamilyInvite", e)
+                        null
+                    }
+                }
+                Log.d(TAG, "Convites encontrados para $email: ${invites.size}")
+                callback(invites, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao buscar convites para $email", e)
+                callback(null, e)
+            }
+    }
+
+    fun getFamilyDetails(familyId: String, callback: (Family?, List<User>?, Exception?) -> Unit) {
+        val familyRef = firestore.collection(FAMILIES_COLLECTION).document(familyId)
+        val usersRef = firestore.collection(USERS_COLLECTION).whereEqualTo("familyId", familyId)
+
+        familyRef.get().addOnSuccessListener { familyDoc ->
+            try {
+                val family = familyDoc.toObject(Family::class.java)?.apply {
+                    // Garante que o ID seja sempre definido com o ID do documento
+                    this.id = familyDoc.id
+                }
+                if (family == null) {
+                    callback(null, null, Exception("Família não encontrada"))
+                    return@addOnSuccessListener
+                }
+
+                usersRef.get().addOnSuccessListener { userSnapshot ->
+                    val members = userSnapshot.documents.mapNotNull { document ->
+                        try {
+                            document.toObject(User::class.java)?.apply {
+                                // Garante que o ID seja sempre definido com o ID do documento
+                                this.id = document.id
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Erro ao converter documento para User na família $familyId", e)
+                            null
+                        }
+                    }
+                    callback(family, members, null)
+                }.addOnFailureListener { e ->
+                    callback(family, null, e)
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Erro ao converter documento para Family", e)
+                callback(null, null, e)
+            }
+
+        }.addOnFailureListener { e ->
+            callback(null, null, e)
+        }
+    }
+
+    fun sendFamilyInvite(
+        invite: FamilyInvite,
+        recipientEmail: String,
+        callback: (Boolean, String?) -> Unit
+    ) {
+        Log.d(TAG, "Enviando convite para: $recipientEmail, família: ${invite.familyName}")
+        
+        val usersCollection = firestore.collection(USERS_COLLECTION)
+
+        // Verifica se o e-mail existe na base de usuários
+        usersCollection.whereEqualTo("email", recipientEmail)
+            .get()
+            .addOnSuccessListener { querySnapshot ->
+                Log.d(TAG, "Verificação de email: ${querySnapshot.size()} usuários encontrados para $recipientEmail")
+                
+                if (querySnapshot.isEmpty) {
+                    Log.w(TAG, "Email não encontrado: $recipientEmail")
+                    callback(false, "E-mail não cadastrado no sistema.")
+                } else {
+                    // Gera um ID se não existir
+                    val inviteId = invite.id ?: UUID.randomUUID().toString()
+                    val inviteWithId = invite.copy(
+                        id = inviteId,
+                        recipientEmail = recipientEmail
+                    )
+                    
+                    Log.d(TAG, "Criando convite com ID: $inviteId")
+
+                    firestore.collection(INVITES_COLLECTION)
+                        .document(inviteId)
+                        .set(inviteWithId)
+                        .addOnSuccessListener {
+                            Log.d(TAG, "Convite criado com sucesso: $inviteId")
+                            callback(true, null)
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e(TAG, "Erro ao criar convite", e)
+                            callback(false, "Erro ao enviar convite: ${e.message}")
+                        }
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao verificar usuário", e)
+                callback(false, "Erro ao verificar usuário: ${e.message}")
+            }
+    }
+
+
+    fun acceptFamilyInvite(userId: String, familyId: String, inviteId: String, callback: (Boolean, String?) -> Unit) {
+        if (inviteId.isNullOrEmpty()) {
+            callback(false, "ID do convite inválido")
+            return
+        }
+        
+        // Atualizar o usuário com o familyId e tipo "membro"
+        val updates = mapOf(
+            "familyId" to familyId,
+            "type" to "membro"
+        )
+        
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .update(updates)
+            .addOnSuccessListener {
+                firestore.collection(INVITES_COLLECTION).document(inviteId)
+                    .delete()
+                    .addOnSuccessListener {
+                        Log.d(TAG, "Convite aceito com sucesso. Usuário $userId adicionado à família $familyId")
+                        callback(true, null)
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Erro ao remover convite $inviteId", e)
+                        callback(false, "Erro ao remover convite: ${e.message}")
+                    }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao aceitar convite para usuário $userId", e)
+                callback(false, "Erro ao aceitar convite: ${e.message}")
+            }
+    }
+
+    fun updateUserTypeAndFamily(userId: String, type: String, familyId: String, callback: (Boolean, String?) -> Unit) {
+        val userRef = firestore.collection(USERS_COLLECTION).document(userId)
+
+        userRef.update(
+            mapOf(
+                "type" to type,
+                "familyId" to familyId
+            )
+        ).addOnSuccessListener {
+            Log.d(TAG, "Usuário $userId atualizado com tipo $type e família $familyId")
+            callback(true, null)
+        }.addOnFailureListener { e ->
+            Log.e(TAG, "Erro ao atualizar usuário $userId", e)
+            callback(false, e.message)
+        }
     }
 }

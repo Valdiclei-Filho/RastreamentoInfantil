@@ -46,31 +46,42 @@ import java.util.UUID
 import com.google.android.gms.maps.model.Dash
 import com.google.android.gms.maps.model.Gap
 import com.google.android.gms.maps.model.PatternItem
+import androidx.lifecycle.ViewModelProvider
+import androidx.compose.ui.platform.LocalContext
+import com.example.rastreamentoinfantil.viewmodel.LoginViewModel
+import com.example.rastreamentoinfantil.viewmodel.LoginViewModelFactory
+import com.example.rastreamentoinfantil.repository.FirebaseRepository
+import com.example.rastreamentoinfantil.MainActivity
 
 @Composable
 fun MapScreen(
     modifier: Modifier = Modifier,
-    mainViewModel: MainViewModel, // Removido o default viewModel() aqui, passe explicitamente
+    mainViewModel: MainViewModel,
     navController: NavHostController
 ) {
+    // Criar o LoginViewModel no contexto @Composable
+    val loginViewModel = ViewModelProvider(
+        LocalContext.current as MainActivity,
+        LoginViewModelFactory(FirebaseRepository())
+    )[LoginViewModel::class.java]
+
     val currentLocation by mainViewModel.currentLocation.collectAsState()
     val currentGeofence by mainViewModel.geofenceArea.collectAsState()
     val isInsideGeofence by mainViewModel.isUserInsideGeofence.collectAsState()
+    val routes by mainViewModel.routes.collectAsState()
+    val isLoadingRoutes by mainViewModel.isLoadingRoutes.collectAsState()
+
+    var isEditingGeofence by remember { mutableStateOf(false) }
+    var newGeofenceCenter by remember { mutableStateOf<LatLng?>(null) }
+    var newGeofenceRadius by remember { mutableStateOf(100f) }
 
     val currentUserId = remember { FirebaseAuth.getInstance().currentUser?.uid }
-
-    val routes by mainViewModel.routes.collectAsStateWithLifecycle()
-    val isLoadingRoutes by mainViewModel.isLoadingRoutes.collectAsStateWithLifecycle()
 
     LaunchedEffect(currentUserId) {
         if (currentUserId != null) {
             mainViewModel.loadUserRoutes(currentUserId)
         }
     }
-
-    var newGeofenceCenter by remember { mutableStateOf<LatLng?>(null) }
-    var newGeofenceRadius by remember { mutableStateOf(100f) } // Inicializa com um padrão
-    var isEditingGeofence by remember { mutableStateOf(false) }
 
     val defaultLocation = LatLng(-23.550520, -46.633308) // São Paulo como padrão
     val initialZoom = 15f
@@ -319,16 +330,17 @@ fun MapScreen(
 
             Button(
                 onClick = {
-                    FirebaseAuth.getInstance().signOut()
-
-                    println(FirebaseAuth.getInstance().currentUser)
-
-                    mainViewModel.clearAllData()
+                    // Limpar todos os dados do MainViewModel
+                    mainViewModel.resetAuthenticationState()
+                    
+                    // Fazer logout usando o LoginViewModel
+                    loginViewModel.signOut()
+                    
+                    // Navegar para a tela de login
                     navController.navigate(LOGIN_SCREEN) {
-                        popUpTo(0) { inclusive = true } // Remove tudo da pilha PRECISA AJUSTAR NAO TA SAINDO A PILHA
+                        popUpTo(0) { inclusive = true }
                         launchSingleTop = true
                     }
-
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
             ) {

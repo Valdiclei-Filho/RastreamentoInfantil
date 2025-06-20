@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -47,83 +48,42 @@ class MainActivity : ComponentActivity(){
         Manifest.permission.ACCESS_COARSE_LOCATION
     )
 
-        // 1. Launcher para MÚLTIPLAS PERMISSÕES DE LOCALIZAÇÃO (Já existente e correto)
-        private val requestLocationPermissionsLauncher = // Renomeado para clareza, se quiser
-            registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-                val allLocationPermissionsGranted = permissions.entries.all { it.value } // Checa se TODAS as permissões pedidas foram concedidas
-
-                // Filtra para garantir que estamos falando das permissões de localização
-                val fineLocationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
-                val coarseLocationGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
-
-                if (fineLocationGranted && coarseLocationGranted) { // Ou apenas allLocationPermissionsGranted se só pedir localização
-                    println("Todas as permissões de localização concedidas.")
-                } else {
-                    println("Pelo menos uma permissão de localização foi negada.")
-                    // Lidar com a negação das permissões de localização
-                }
-            }
-
-        // 2. Novo Launcher para a PERMISSÃO ÚNICA DE NOTIFICAÇÃO
-        private val requestNotificationPermissionLauncher =
-            registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
-                if (isGranted) {
-                    println("Permissão de notificação CONCEDIDA.")
-                    // Ação opcional se concedida aqui, como mostrar um Toast
-                    Toast.makeText(this, "Permissão de notificação concedida", Toast.LENGTH_SHORT).show()
-                } else {
-                    println("Permissão de notificação NEGADA.")
-                    // Ação opcional se negada, como mostrar um Toast ou diálogo
-                    Toast.makeText(this, "Permissão de notificação negada. Funcionalidades podem ser limitadas.", Toast.LENGTH_LONG).show()
-                }
-            }
-
-        // ... (locationPermissions, checkAndRequestLocationPermissions - usando requestLocationPermissionsLauncher) ...
-        private fun checkAndRequestLocationPermissions() {
-            val permissionsToRequest = mutableListOf<String>()
-            for (permission in locationPermissions) {
-                if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
-                    permissionsToRequest.add(permission)
-                }
-            }
-
-            if (permissionsToRequest.isNotEmpty()) {
-                // Use o launcher correto para localização
-                requestLocationPermissionsLauncher.launch(permissionsToRequest.toTypedArray())
+    private val requestLocationPermissionsLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+            val allLocationPermissionsGranted = permissions.entries.all { it.value }
+            if (allLocationPermissionsGranted) {
+                Log.d("MainActivity", "Todas as permissões de localização concedidas")
+                mainViewModel.startLocationMonitoring()
             } else {
-                println("Todas as permissões de localização já estavam concedidas.")
+                Log.e("MainActivity", "Permissões de localização negadas")
+                Toast.makeText(this, "Permissões de localização são necessárias", Toast.LENGTH_LONG).show()
             }
         }
 
-        private fun askNotificationPermission() {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val permission = Manifest.permission.POST_NOTIFICATIONS
-                when {
-                    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED -> {
-                        println("Permissão de notificação já concedida.")
-                    }
-                    shouldShowRequestPermissionRationale(permission) -> {
-                        println("Mostrar justificativa para permissão de notificação.")
-                        // Exemplo: mostrar um AlertDialog aqui explicando por que você precisa da permissão
-                        // e então, na ação positiva do diálogo, chamar o launcher:
-                        // showRationaleDialogForNotificationPermission {
-                        //    requestNotificationPermissionLauncher.launch(permission) // Usa o launcher de notificação
-                        // }
-                        // Por agora, pedindo diretamente após o log:
-                        requestNotificationPermissionLauncher.launch(permission) // <<< USA O LAUNCHER CORRETO (singular)
-                    }
-                    else -> {
-                        requestNotificationPermissionLauncher.launch(permission) // <<< USA O LAUNCHER CORRETO (singular)
-                    }
-                }
+    // 2. Novo Launcher para a PERMISSÃO ÚNICA DE NOTIFICAÇÃO
+    private val requestNotificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
+            if (isGranted) {
+                println("Permissão de notificação CONCEDIDA.")
+                // Ação opcional se concedida aqui, como mostrar um Toast
+                Toast.makeText(this, "Permissão de notificação concedida", Toast.LENGTH_SHORT).show()
+            } else {
+                println("Permissão de notificação NEGADA.")
+                // Ação opcional se negada, como mostrar um Toast ou diálogo
+                Toast.makeText(this, "Permissão de notificação negada. Funcionalidades podem ser limitadas.", Toast.LENGTH_LONG).show()
             }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        checkAndRequestLocationPermissions()
+        // Inicializa o Firebase primeiro
+        FirebaseApp.initializeApp(this)
 
+        // Cria os canais de notificação
+        createNotificationChannels()
+
+        // Inicializa os serviços e ViewModel
         val firebaseRepository = FirebaseRepository()
         val locationService = LocationService(this)
         val geocodingService = GeocodingService(this)
@@ -133,11 +93,7 @@ class MainActivity : ComponentActivity(){
 
         mainViewModel = ViewModelProvider(this, factory).get(MainViewModel::class.java)
 
-        createNotificationChannels()
-        askNotificationPermission()
-
-        FirebaseApp.initializeApp(this)
-
+        // Configura os observadores de eventos
         lifecycleScope.launch {
             mainViewModel.showExitNotificationEvent.collectLatest { geofenceId ->
                 NotificationHelper.showGeofenceExitNotification(this@MainActivity, geofenceId)
@@ -148,6 +104,13 @@ class MainActivity : ComponentActivity(){
             mainViewModel.showRouteExitNotificationEvent.collectLatest { routeName ->
                 NotificationHelper.showRouteExitNotification(this@MainActivity, routeName)
             }
+        }
+
+        // Verifica permissões antes de iniciar o monitoramento
+        if (hasLocationPermissions()) {
+            mainViewModel.startLocationMonitoring()
+        } else {
+            requestLocationPermissions()
         }
 
         setContent {
@@ -190,6 +153,16 @@ class MainActivity : ComponentActivity(){
         }
     }
 
+    private fun hasLocationPermissions(): Boolean {
+        return locationPermissions.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requestLocationPermissions() {
+        requestLocationPermissionsLauncher.launch(locationPermissions)
+    }
+
     override fun onResume() {
         super.onResume()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -197,12 +170,6 @@ class MainActivity : ComponentActivity(){
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
             }
         }
-        mainViewModel.startLocationMonitoring()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        mainViewModel.stopLocationMonitoring()
     }
 
     private val requestPermissionLauncher =

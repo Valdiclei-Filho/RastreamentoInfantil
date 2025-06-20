@@ -56,42 +56,54 @@ class FamilyViewModel(
         currentLoadUserId = currentUserId
         clearData()
         _loading.postValue(true)
+        
+        Log.d("FamilyViewModel", "Carregando dados da família para usuário: $currentUserId, email: $currentUserEmail")
 
         repository.getUserById(currentUserId) { user, error ->
             // Só atualiza se o callback for do usuário atual carregado
             if (currentLoadUserId != currentUserId) {
                 // Callback desatualizado, ignorar
+                Log.d("FamilyViewModel", "Callback desatualizado, ignorando")
                 return@getUserById
             }
 
             if (error != null) {
+                Log.e("FamilyViewModel", "Erro ao buscar usuário", error)
                 _message.postValue("Erro ao buscar usuário: ${error.message}")
                 _loading.postValue(false)
                 return@getUserById
             }
 
+            Log.d("FamilyViewModel", "Usuário encontrado: ${user?.name}, familyId: ${user?.familyId}")
+
             if (user == null || user.familyId.isNullOrEmpty()) {
                 // Usuário sem família: carregar convites
+                Log.d("FamilyViewModel", "Usuário sem família, buscando convites para: $currentUserEmail")
                 repository.getFamilyInvitesForUser(currentUserEmail) { invites, err ->
                     if (currentLoadUserId != currentUserId) return@getFamilyInvitesForUser
 
                     _loading.postValue(false)
                     if (err != null) {
+                        Log.e("FamilyViewModel", "Erro ao buscar convites", err)
                         _message.postValue("Erro ao buscar convites: ${err.message}")
                     } else {
+                        Log.d("FamilyViewModel", "Convites carregados: ${invites?.size ?: 0}")
                         _invites.postValue(invites ?: emptyList())
                     }
                 }
             } else {
                 // Usuário com família: carregar família e membros
                 val familyId = user.familyId
+                Log.d("FamilyViewModel", "Usuário com família, carregando família: $familyId")
                 repository.getFamilyDetails(familyId) { family, members, err ->
                     if (currentLoadUserId != currentUserId) return@getFamilyDetails
 
                     _loading.postValue(false)
                     if (err != null) {
+                        Log.e("FamilyViewModel", "Erro ao carregar família", err)
                         _message.postValue("Erro ao carregar família: ${err.message}")
                     } else {
+                        Log.d("FamilyViewModel", "Família carregada: ${family?.name}, membros: ${members?.size ?: 0}")
                         _family.postValue(family)
                         _members.postValue(members ?: emptyList())
                     }
@@ -112,7 +124,8 @@ class FamilyViewModel(
         repository.createFamily(newFamily) { success, errorMsg ->
             if (success) {
                 // Atualiza o user como responsável e define o familyId
-                repository.updateUserTypeAndFamily(currentUserId, "responsavel", newFamily.id) { userUpdated, userError ->
+                val familyId = newFamily.id ?: ""
+                repository.updateUserTypeAndFamily(currentUserId, "responsavel", familyId) { userUpdated, userError ->
                     _loading.postValue(false)
                     if (userUpdated) {
                         _message.postValue("Família criada e perfil atualizado como responsável")
@@ -130,10 +143,16 @@ class FamilyViewModel(
 
 
     fun sendInvite(recipientEmail: String) {
+        val family = _family.value
+        if (family?.id.isNullOrEmpty()) {
+            _message.postValue("Erro: família não encontrada")
+            return
+        }
+        
         val invite = FamilyInvite(
-            id = "", // será gerado no repo
-            familyName = _family.value?.name ?: "",
-            familyId = _family.value?.id ?: "",
+            id = null, // será gerado no repo
+            familyName = family?.name ?: "",
+            familyId = family?.id ?: "",
             recipientEmail = recipientEmail
         )
         _loading.postValue(true)
@@ -148,8 +167,16 @@ class FamilyViewModel(
     }
 
     fun acceptInvite(invite: FamilyInvite) {
+        val familyId = invite.familyId
+        val inviteId = invite.id
+        
+        if (familyId.isNullOrEmpty() || inviteId.isNullOrEmpty()) {
+            _message.postValue("Erro: dados do convite inválidos")
+            return
+        }
+        
         _loading.postValue(true)
-        repository.acceptFamilyInvite(currentUserId, invite.familyId, invite.id) { success, errorMsg ->
+        repository.acceptFamilyInvite(currentUserId, familyId, inviteId) { success, errorMsg ->
             _loading.postValue(false)
             if (success) {
                 _message.postValue("Convite aceito")

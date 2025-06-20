@@ -18,6 +18,7 @@ import com.example.rastreamentoinfantil.viewmodel.FamilyViewModel
 import com.example.rastreamentoinfantil.viewmodel.FamilyViewModelFactory
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
 import com.google.firebase.auth.FirebaseAuth
+import android.util.Log
 
 @Composable
 fun FamilyScreen(navController: NavController) {
@@ -44,6 +45,11 @@ fun FamilyScreenContent(viewModel: FamilyViewModel, navController: NavController
     val message by viewModel.message.observeAsState()
 
     val currentFamily = family
+    
+    // Logs para debug
+    LaunchedEffect(family, invites, loading) {
+        Log.d("FamilyScreen", "Estado atualizado - family: ${family?.name}, invites: ${invites.size}, loading: $loading")
+    }
 
     Column(
         modifier = Modifier

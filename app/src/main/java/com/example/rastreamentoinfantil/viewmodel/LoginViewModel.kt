@@ -1,5 +1,6 @@
 package com.example.rastreamentoinfantil.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -59,6 +60,18 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
     fun signOut() {
         firebaseRepository.signOut()
         _isLoggedIn.value = false
+        _user.value = null
+        _error.value = null
+        _registerSuccess.value = false
+        Log.d("LoginViewModel", "Usuário deslogado e dados limpos")
+    }
+
+    fun checkAuthenticationState() {
+        val currentUser = firebaseRepository.getCurrentUser()
+        _isLoggedIn.value = currentUser != null
+        if (currentUser == null) {
+            _user.value = null
+        }
     }
 
     // Função para limpar o erro

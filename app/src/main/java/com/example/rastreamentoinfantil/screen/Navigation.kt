@@ -1,6 +1,13 @@
 package com.example.rastreamentoinfantil.screen
 
+import android.util.Log
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -44,18 +51,38 @@ fun Navigation(
         LoginViewModelFactory(firebaseRepository)
     )[LoginViewModel::class.java]
 
-    val currentUser = FirebaseAuth.getInstance().currentUser
-    val currentUserId = currentUser?.uid ?: ""
-    val currentUserEmail = currentUser?.email ?: ""
+    // Estado reativo para detectar mudanças na autenticação
+    val isLoggedIn by loginViewModel.isLoggedIn.observeAsState(initial = false)
+    var currentUser by remember { mutableStateOf(FirebaseAuth.getInstance().currentUser) }
+    var currentUserId by remember { mutableStateOf(currentUser?.uid ?: "") }
+    var currentUserEmail by remember { mutableStateOf(currentUser?.email ?: "") }
 
-    println("startDestination")
+    // Verificar estado de autenticação quando o componente é criado
+    LaunchedEffect(Unit) {
+        loginViewModel.checkAuthenticationState()
+    }
 
-    println(currentUser)
-
-    val startDestination = if (currentUser != null) {
-        AppDestinations.MAP_SCREEN
-    } else {
-        AppDestinations.LOGIN_SCREEN
+    // Observar mudanças no estado de login
+    LaunchedEffect(isLoggedIn) {
+        currentUser = FirebaseAuth.getInstance().currentUser
+        currentUserId = currentUser?.uid ?: ""
+        currentUserEmail = currentUser?.email ?: ""
+        
+        Log.d("Navigation", "Estado de login mudou: isLoggedIn=$isLoggedIn, currentUser=$currentUser")
+        
+        if (!isLoggedIn && currentUser == null) {
+            // Usuário não está logado, navegar para login
+            navController.navigate(AppDestinations.LOGIN_SCREEN) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+        } else if (isLoggedIn && currentUser != null) {
+            // Usuário está logado, navegar para mapa
+            navController.navigate(AppDestinations.MAP_SCREEN) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
     }
 
     val familyViewModel = ViewModelProvider(
@@ -75,7 +102,7 @@ fun Navigation(
         }
     )[FamilyViewModel::class.java]
 
-    NavHost(navController = navController, startDestination = startDestination) {
+    NavHost(navController = navController, startDestination = AppDestinations.LOGIN_SCREEN) {
 
         composable(AppDestinations.LOGIN_SCREEN) {
             println(">>>>>>>>> login screen<<<< ")
