@@ -41,6 +41,7 @@ import java.net.URL
 import java.util.UUID
 import com.example.rastreamentoinfantil.helper.RouteHelper
 import com.google.firebase.auth.FirebaseAuth
+import com.example.rastreamentoinfantil.model.User
 
 class MainViewModel(
     application: Application,
@@ -118,6 +119,16 @@ class MainViewModel(
 
     private val _routeDeviationEvent = MutableSharedFlow<RouteDeviation>()
     val routeDeviationEvent = _routeDeviationEvent.asSharedFlow()
+
+    // Novos campos para controle de família e responsável
+    private val _familyMembers = MutableStateFlow<List<User>>(emptyList())
+    val familyMembers: StateFlow<List<User>> = _familyMembers.asStateFlow()
+
+    private val _currentUser = MutableStateFlow<User?>(null)
+    val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
+
+    private val _isResponsible = MutableStateFlow<Boolean>(false)
+    val isResponsible: StateFlow<Boolean> = _isResponsible.asStateFlow()
 
     data class RouteDeviation(
         val routeId: String,
@@ -323,16 +334,62 @@ class MainViewModel(
     fun loadUserRoutes(userId: String) {
         viewModelScope.launch {
             _isLoadingRoutes.value = true
-            firebaseRepository.getUserRoutes(userId) { routesResult, exception ->
-                _isLoadingRoutes.value = false
-                if (exception != null) {
-                    _routes.value = emptyList() // Mantenha como está
-                    _error.value = "Falha ao carregar rotas: ${exception.message}"
-                    Log.e(TAG, "Erro ao carregar rotas para o usuário $userId", exception)
-                } else {
-                    // Filtra rotas que possam ter ID nulo (embora não devesse acontecer)
-                    _routes.value = routesResult?.filter { it.id != null } ?: emptyList()
-                    Log.d(TAG, "Rotas carregadas para o usuário $userId: ${_routes.value.size} rotas válidas")
+            
+            // Verificar se o usuário atual tem família
+            val currentUserData = _currentUser.value
+            val familyId = currentUserData?.familyId
+            
+            if (isResponsible.value) {
+                // Responsáveis: buscar rotas na própria coleção
+                firebaseRepository.getUserRoutes(userId) { routesResult, exception ->
+                    _isLoadingRoutes.value = false
+                    if (exception != null) {
+                        _routes.value = emptyList()
+                        _error.value = "Falha ao carregar rotas: ${exception.message}"
+                        Log.e(TAG, "Erro ao carregar rotas para o responsável $userId", exception)
+                    } else {
+                        val allRoutes = routesResult?.filter { it.id != null } ?: emptyList()
+                        // Responsáveis veem todas as rotas que criaram
+                        val filteredRoutes = allRoutes.filter { it.createdByUserId == userId }
+                        // Desduplicar rotas baseado no ID para evitar chaves duplicadas no LazyColumn
+                        val uniqueRoutes = filteredRoutes.distinctBy { it.id }
+                        _routes.value = uniqueRoutes
+                        Log.d(TAG, "Rotas carregadas para o responsável $userId: ${uniqueRoutes.size} rotas únicas (de ${filteredRoutes.size} total)")
+                    }
+                }
+            } else if (familyId != null) {
+                // Membros da família: buscar rotas em todas as coleções da família
+                firebaseRepository.getRoutesForFamilyMember(userId, familyId) { routesResult, exception ->
+                    _isLoadingRoutes.value = false
+                    if (exception != null) {
+                        _routes.value = emptyList()
+                        _error.value = "Falha ao carregar rotas: ${exception.message}"
+                        Log.e(TAG, "Erro ao carregar rotas para o membro $userId", exception)
+                    } else {
+                        val allRoutes = routesResult?.filter { it.id != null } ?: emptyList()
+                        // Membros veem apenas rotas onde são o targetUserId
+                        val filteredRoutes = allRoutes.filter { it.targetUserId == userId }
+                        // Desduplicar rotas baseado no ID para evitar chaves duplicadas no LazyColumn
+                        val uniqueRoutes = filteredRoutes.distinctBy { it.id }
+                        _routes.value = uniqueRoutes
+                        Log.d(TAG, "Rotas carregadas para o membro $userId: ${uniqueRoutes.size} rotas únicas (de ${filteredRoutes.size} total)")
+                    }
+                }
+            } else {
+                // Usuário sem família: buscar rotas na própria coleção (fallback)
+                firebaseRepository.getUserRoutes(userId) { routesResult, exception ->
+                    _isLoadingRoutes.value = false
+                    if (exception != null) {
+                        _routes.value = emptyList()
+                        _error.value = "Falha ao carregar rotas: ${exception.message}"
+                        Log.e(TAG, "Erro ao carregar rotas para o usuário $userId", exception)
+                    } else {
+                        val allRoutes = routesResult?.filter { it.id != null } ?: emptyList()
+                        // Desduplicar rotas baseado no ID para evitar chaves duplicadas no LazyColumn
+                        val uniqueRoutes = allRoutes.distinctBy { it.id }
+                        _routes.value = uniqueRoutes
+                        Log.d(TAG, "Rotas carregadas para o usuário $userId (sem família): ${uniqueRoutes.size} rotas únicas (de ${allRoutes.size} total)")
+                    }
                 }
             }
         }
@@ -341,6 +398,13 @@ class MainViewModel(
         val firebaseUser = FirebaseAuth.getInstance().currentUser
         Log.d(TAG, "addOrUpdateRoute: FirebaseAuth.currentUser = ${firebaseUser?.uid}, email = ${firebaseUser?.email}")
         val userId = firebaseUser?.uid
+        
+        // Verificar se o usuário é responsável
+        if (!canManageRoutes()) {
+            _routeOperationStatus.value = RouteOperationStatus.Error("Apenas responsáveis podem editar rotas.")
+            return
+        }
+        
         userId?.let {
             viewModelScope.launch {
                 _routeOperationStatus.value = RouteOperationStatus.Loading
@@ -364,6 +428,12 @@ class MainViewModel(
         }
     }
     fun deleteRoute(routeId: String) {
+        // Verificar se o usuário é responsável
+        if (!canManageRoutes()) {
+            _routeOperationStatus.value = RouteOperationStatus.Error("Apenas responsáveis podem excluir rotas.")
+            return
+        }
+        
         currentUserId?.let { userId ->
             viewModelScope.launch {
                 _routeOperationStatus.value = RouteOperationStatus.Loading
@@ -491,9 +561,17 @@ class MainViewModel(
         destinationPoint: RoutePoint,
         waypointsList: List<RoutePoint>?,
         routeColor: String = "#FF0000", // Cor padrão
-        isActive: Boolean = true
+        isActive: Boolean = true,
+        activeDays: List<String> = emptyList(),
+        targetUserId: String? = null
     ) {
         currentUserId?.let { userId ->
+            // Verificar se o usuário é responsável
+            if (!canManageRoutes()) {
+                _routeOperationStatus.value = RouteOperationStatus.Error("Apenas responsáveis podem criar rotas.")
+                return
+            }
+            
             viewModelScope.launch {
                 _routeOperationStatus.value = RouteOperationStatus.Loading
                 val apiKey = "AIzaSyB3KoJSAscYJb_YG70Mw3dqiBVXjMm7Z-k" // Obtenha sua API Key do BuildConfig
@@ -527,6 +605,9 @@ class MainViewModel(
                     encodedPolyline = encodedPolylineString, // ARMAZENA A POLYLINE CODIFICADA
                     isActive = isActive,
                     routeColor = routeColor,
+                    activeDays = activeDays,
+                    targetUserId = targetUserId,
+                    createdByUserId = userId
                     // createdAt e updatedAt serão definidos pelo @ServerTimestamp no Firestore
                 )
 
@@ -577,8 +658,11 @@ class MainViewModel(
         // Limpar registros de localização
         _locationRecords.value = emptyList()
         
-        // Limpar dados de usuário
+        // Limpar dados de usuário e família
         currentUserId = null
+        _currentUser.value = null
+        _familyMembers.value = emptyList()
+        _isResponsible.value = false
         
         // Limpar estados de loading e erro
         _isLoading.value = false
@@ -603,9 +687,103 @@ class MainViewModel(
         if (firebaseUser != null) {
             currentUserId = firebaseUser.uid
             Log.d(TAG1, "syncCurrentUser: Usuário sincronizado: ${firebaseUser.uid}, email: ${firebaseUser.email}")
+            // Carregar dados do usuário e família após sincronizar
+            loadCurrentUserData()
+            // Carregar rotas após determinar o tipo de usuário
+            loadUserRoutes(firebaseUser.uid)
         } else {
             currentUserId = null
             Log.w(TAG1, "syncCurrentUser: Nenhum usuário logado!")
+        }
+    }
+
+    /**
+     * Carrega dados do usuário atual e verifica se é responsável
+     */
+    private fun loadCurrentUserData() {
+        currentUserId?.let { userId ->
+            firebaseRepository.getUserById(userId) { user, error ->
+                if (error != null) {
+                    Log.e(TAG1, "Erro ao carregar dados do usuário", error)
+                    _error.value = "Erro ao carregar dados do usuário: ${error.message}"
+                } else {
+                    user?.let { currentUserData ->
+                        _currentUser.value = currentUserData
+                        val wasResponsible = _isResponsible.value
+                        _isResponsible.value = currentUserData.type == "responsavel"
+                        Log.d(TAG1, "Usuário carregado: ${currentUserData.name}, tipo: ${currentUserData.type}")
+                        
+                        // Se o status de responsável mudou, recarregar rotas
+                        if (wasResponsible != _isResponsible.value) {
+                            loadUserRoutes(userId)
+                        }
+                        
+                        // Se o usuário tem família, carregar membros
+                        if (!currentUserData.familyId.isNullOrEmpty()) {
+                            loadFamilyMembers(currentUserData.familyId!!)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Carrega membros da família
+     */
+    private fun loadFamilyMembers(familyId: String) {
+        firebaseRepository.getFamilyDetails(familyId) { family, members, error ->
+            if (error != null) {
+                Log.e(TAG1, "Erro ao carregar membros da família", error)
+                _error.value = "Erro ao carregar membros da família: ${error.message}"
+            } else {
+                _familyMembers.value = members ?: emptyList()
+                Log.d(TAG1, "Membros da família carregados: ${members?.size ?: 0}")
+            }
+        }
+    }
+
+    /**
+     * Verifica se o usuário atual pode criar/editar rotas (apenas responsáveis)
+     */
+    fun canManageRoutes(): Boolean {
+        return _isResponsible.value
+    }
+
+    /**
+     * Verifica se uma rota está ativa para o dia atual
+     */
+    fun isRouteActiveForToday(route: Route): Boolean {
+        if (!route.isActive) return false
+        
+        val today = java.time.DayOfWeek.from(java.time.LocalDate.now())
+        val dayNames = mapOf(
+            java.time.DayOfWeek.MONDAY to "Segunda",
+            java.time.DayOfWeek.TUESDAY to "Terça", 
+            java.time.DayOfWeek.WEDNESDAY to "Quarta",
+            java.time.DayOfWeek.THURSDAY to "Quinta",
+            java.time.DayOfWeek.FRIDAY to "Sexta",
+            java.time.DayOfWeek.SATURDAY to "Sábado",
+            java.time.DayOfWeek.SUNDAY to "Domingo"
+        )
+        
+        val todayName = dayNames[today] ?: return false
+        return route.activeDays.contains(todayName)
+    }
+
+    /**
+     * Filtra rotas que estão ativas para o usuário atual no dia atual
+     */
+    fun getActiveRoutesForToday(): List<Route> {
+        return routes.value.filter { route ->
+            route.isActive && 
+            isRouteActiveForToday(route) &&
+            (
+                // Responsáveis veem todas as rotas que criaram
+                (isResponsible.value && route.createdByUserId == currentUserId) ||
+                // Membros veem apenas rotas onde são o targetUserId
+                (!isResponsible.value && route.targetUserId == currentUserId)
+            )
         }
     }
 

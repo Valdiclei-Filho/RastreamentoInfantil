@@ -378,25 +378,119 @@ class FirebaseRepository {
             return
         }
 
+        // Log detalhado dos campos da rota
+        Log.d(TAG, "saveRoute: Salvando rota '${route.name}' com campos:")
+        Log.d(TAG, "  - ID: ${route.id}")
+        Log.d(TAG, "  - activeDays: ${route.activeDays}")
+        Log.d(TAG, "  - targetUserId: ${route.targetUserId}")
+        Log.d(TAG, "  - createdByUserId: ${route.createdByUserId}")
+        Log.d(TAG, "  - isActive: ${route.isActive}")
+
         val routesCollection = firestore.collection(USERS_COLLECTION).document(userId)
             .collection(ROUTES_COLLECTION)
 
         val task = if (route.id.isNullOrEmpty()) {
             val newRouteRef = routesCollection.document()
             val routeToSave = route.copy(id = newRouteRef.id)
-            newRouteRef.set(routeToSave).continueWith { routeToSave.id }
+            Log.d(TAG, "saveRoute: Criando nova rota com ID: ${routeToSave.id}")
+            newRouteRef.set(routeToSave).continueWith { routeToSave.id!! }
         } else {
             val routeToSave = route.copy(updatedAt = java.util.Date())
-            routesCollection.document(route.id!!).set(routeToSave, SetOptions.merge()).continueWith { route.id }
+            Log.d(TAG, "saveRoute: Atualizando rota existente com ID: ${routeToSave.id}")
+            Log.d(TAG, "saveRoute: Usando SetOptions.merge() para preservar campos existentes")
+            routesCollection.document(route.id!!).set(routeToSave, SetOptions.merge()).continueWith { route.id!! }
         }
 
         task.addOnSuccessListener { savedRouteId ->
             Log.d(TAG, "Rota (ID: $savedRouteId) salva com sucesso para o usuário $userId.")
-            onComplete(savedRouteId, null)
+            
+            // Se a rota tem um targetUserId diferente do userId (responsável), 
+            // também salvar na coleção do membro da família
+            val targetUserId = route.targetUserId
+            if (!targetUserId.isNullOrEmpty() && targetUserId != userId) {
+                Log.d(TAG, "saveRoute: Rota destinada a membro da família. Salvando também na coleção do usuário $targetUserId")
+                
+                // Se a rota já existe, primeiro buscar o targetUserId anterior para removê-lo
+                if (!route.id.isNullOrEmpty()) {
+                    // Buscar a rota atual para verificar o targetUserId anterior
+                    routesCollection.document(route.id!!).get()
+                        .addOnSuccessListener { document ->
+                            if (document.exists()) {
+                                val currentRoute = document.toObject(Route::class.java)
+                                val previousTargetUserId = currentRoute?.targetUserId
+                                
+                                if (previousTargetUserId != null && previousTargetUserId != targetUserId && previousTargetUserId != userId) {
+                                    Log.d(TAG, "saveRoute: targetUserId mudou de $previousTargetUserId para $targetUserId. Removendo do usuário anterior.")
+                                    val prevId: String = previousTargetUserId!!
+                                    removeRouteFromUser(prevId, savedRouteId) { success, exception ->
+                                        if (!success) {
+                                            Log.w(TAG, "Aviso: Não foi possível remover rota do usuário anterior $prevId")
+                                        }
+                                        if (targetUserId != null) {
+                                            saveRouteInMemberCollection(targetUserId!!, route, savedRouteId, onComplete)
+                                        } else {
+                                            onComplete(savedRouteId, null)
+                                        }
+                                    }
+                                } else if (targetUserId != null) {
+                                    saveRouteInMemberCollection(targetUserId!!, route, savedRouteId, onComplete)
+                                } else {
+                                    onComplete(savedRouteId, null)
+                                }
+                            } else {
+                                if (targetUserId != null) {
+                                    saveRouteInMemberCollection(targetUserId!!, route, savedRouteId, onComplete)
+                                } else {
+                                    onComplete(savedRouteId, null)
+                                }
+                            }
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e(TAG, "Erro ao buscar rota atual para verificar targetUserId anterior", e)
+                            if (targetUserId != null) {
+                                saveRouteInMemberCollection(targetUserId!!, route, savedRouteId, onComplete)
+                            } else {
+                                onComplete(savedRouteId, null)
+                            }
+                        }
+                } else {
+                    if (targetUserId != null) {
+                        saveRouteInMemberCollection(targetUserId!!, route, savedRouteId, onComplete)
+                    } else {
+                        onComplete(savedRouteId, null)
+                    }
+                }
+            } else {
+                onComplete(savedRouteId, null)
+            }
         }
+        .addOnFailureListener { e ->
+            Log.e(TAG, "Erro ao salvar rota '${route.name}' para o usuário $userId", e)
+            onComplete(null, e)
+        }
+    }
+
+    /**
+     * Método auxiliar para salvar rota na coleção do membro da família
+     */
+    private fun saveRouteInMemberCollection(targetUserId: String, route: Route, routeId: String, onComplete: (String?, Exception?) -> Unit) {
+        val memberRoutesCollection = firestore.collection(USERS_COLLECTION).document(targetUserId)
+            .collection(ROUTES_COLLECTION)
+        
+        val memberRouteToSave = route.copy(
+            id = routeId, // Usar o mesmo ID para manter consistência
+            updatedAt = java.util.Date()
+        )
+        
+        memberRoutesCollection.document(routeId).set(memberRouteToSave, SetOptions.merge())
+            .addOnSuccessListener {
+                Log.d(TAG, "Rota (ID: $routeId) também salva na coleção do membro $targetUserId")
+                onComplete(routeId, null)
+            }
             .addOnFailureListener { e ->
-                Log.e(TAG, "Erro ao salvar rota '${route.name}' para o usuário $userId", e)
-                onComplete(null, e)
+                Log.e(TAG, "Erro ao salvar rota na coleção do membro $targetUserId", e)
+                // Mesmo com erro, a rota foi salva na coleção do responsável
+                onComplete(routeId, e)
             }
     }
 
@@ -416,6 +510,13 @@ class FirebaseRepository {
                         document.toObject(Route::class.java)?.apply {
                             // Garante que o ID seja sempre definido com o ID do documento
                             this.id = document.id
+                        }?.also { route ->
+                            // Log detalhado de cada rota carregada
+                            Log.d(TAG, "getUserRoutes: Rota carregada '${route.name}' (ID: ${route.id}):")
+                            Log.d(TAG, "  - activeDays: ${route.activeDays}")
+                            Log.d(TAG, "  - targetUserId: ${route.targetUserId}")
+                            Log.d(TAG, "  - createdByUserId: ${route.createdByUserId}")
+                            Log.d(TAG, "  - isActive: ${route.isActive}")
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Erro ao converter documento para Route", e)
@@ -427,6 +528,90 @@ class FirebaseRepository {
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Erro ao buscar rotas para o usuário $userId", e)
+                onComplete(null, e)
+            }
+    }
+
+    /**
+     * Busca rotas destinadas a um membro da família em todas as coleções de usuários da família
+     */
+    fun getRoutesForFamilyMember(targetUserId: String, familyId: String, onComplete: (List<Route>?, Exception?) -> Unit) {
+        if (targetUserId.isEmpty() || familyId.isEmpty()) {
+            Log.w(TAG, "getRoutesForFamilyMember: targetUserId ou familyId está vazio.")
+            onComplete(null, IllegalArgumentException("targetUserId ou familyId está vazio."))
+            return
+        }
+        
+        Log.d(TAG, "Buscando rotas para membro da família: $targetUserId na família: $familyId")
+        
+        // Primeiro, buscar todos os usuários da família
+        firestore.collection(USERS_COLLECTION)
+            .whereEqualTo("familyId", familyId)
+            .get()
+            .addOnSuccessListener { userSnapshot ->
+                val familyUserIds = userSnapshot.documents.mapNotNull { it.id }
+                Log.d(TAG, "Usuários da família encontrados: $familyUserIds")
+                
+                if (familyUserIds.isEmpty()) {
+                    Log.w(TAG, "Nenhum usuário encontrado na família $familyId")
+                    onComplete(emptyList(), null)
+                    return@addOnSuccessListener
+                }
+                
+                // Buscar rotas em todas as coleções de usuários da família
+                val allRoutes = mutableListOf<Route>()
+                var completedQueries = 0
+                val totalQueries = familyUserIds.size
+                
+                familyUserIds.forEach { userId ->
+                    firestore.collection(USERS_COLLECTION).document(userId)
+                        .collection(ROUTES_COLLECTION)
+                        .whereEqualTo("targetUserId", targetUserId)
+                        .get()
+                        .addOnSuccessListener { routeSnapshot ->
+                            val userRoutes = routeSnapshot.documents.mapNotNull { document ->
+                                try {
+                                    document.toObject(Route::class.java)?.apply {
+                                        this.id = document.id
+                                    }?.also { route ->
+                                        Log.d(TAG, "getRoutesForFamilyMember: Rota encontrada '${route.name}' (ID: ${route.id}) criada por: $userId")
+                                        Log.d(TAG, "  - activeDays: ${route.activeDays}")
+                                        Log.d(TAG, "  - targetUserId: ${route.targetUserId}")
+                                        Log.d(TAG, "  - createdByUserId: ${route.createdByUserId}")
+                                        Log.d(TAG, "  - isActive: ${route.isActive}")
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Erro ao converter documento para Route", e)
+                                    null
+                                }
+                            }
+                            allRoutes.addAll(userRoutes)
+                            
+                            completedQueries++
+                            if (completedQueries == totalQueries) {
+                                // Todas as consultas foram concluídas
+                                // Desduplicar rotas baseado no ID para evitar duplicatas
+                                val uniqueRoutes = allRoutes.distinctBy { it.id }
+                                val sortedRoutes = uniqueRoutes.sortedByDescending { it.createdAt }
+                                Log.d(TAG, "Total de rotas encontradas para membro $targetUserId: ${sortedRoutes.size} únicas (de ${allRoutes.size} total)")
+                                onComplete(sortedRoutes, null)
+                            }
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e(TAG, "Erro ao buscar rotas do usuário $userId", e)
+                            completedQueries++
+                            if (completedQueries == totalQueries) {
+                                // Mesmo com erro, retornar as rotas encontradas até agora
+                                // Desduplicar rotas baseado no ID para evitar duplicatas
+                                val uniqueRoutes = allRoutes.distinctBy { it.id }
+                                val sortedRoutes = uniqueRoutes.sortedByDescending { it.createdAt }
+                                onComplete(sortedRoutes, e)
+                            }
+                        }
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao buscar usuários da família $familyId", e)
                 onComplete(null, e)
             }
     }
@@ -490,6 +675,32 @@ class FirebaseRepository {
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Erro ao deletar rota (ID: $routeId) para o usuário $userId", e)
+                onComplete(false, e)
+            }
+    }
+
+    /**
+     * Remove uma rota da coleção de um usuário específico
+     * Usado quando o targetUserId de uma rota é alterado
+     */
+    fun removeRouteFromUser(userId: String?, routeId: String, onComplete: (Boolean, Exception?) -> Unit) {
+        if (userId.isNullOrEmpty() || routeId.isEmpty()) {
+            Log.w(TAG, "removeRouteFromUser: userId ou routeId está vazio.")
+            onComplete(false, IllegalArgumentException("userId ou routeId está vazio."))
+            return
+        }
+        
+        Log.d(TAG, "Removendo rota (ID: $routeId) da coleção do usuário $userId")
+        
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(ROUTES_COLLECTION).document(routeId)
+            .delete()
+            .addOnSuccessListener {
+                Log.d(TAG, "Rota (ID: $routeId) removida com sucesso da coleção do usuário $userId.")
+                onComplete(true, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao remover rota (ID: $routeId) da coleção do usuário $userId", e)
                 onComplete(false, e)
             }
     }

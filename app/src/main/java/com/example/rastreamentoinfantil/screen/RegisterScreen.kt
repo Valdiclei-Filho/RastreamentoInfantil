@@ -123,7 +123,15 @@ fun RegisterScreen(
                     onDismissRequest = { showTermsDialog = false },
                     title = { Text("Termo de Aceite") },
                     text = {
-                        Text("Ao criar uma conta, você concorda com os Termos de Uso e a Política de Privacidade do aplicativo Rastreamento Infantil. Suas informações serão utilizadas apenas para fins de funcionamento do app, conforme descrito na política. Você pode solicitar a exclusão dos seus dados a qualquer momento.")
+                        Text("Ao prosseguir com o cadastro, você declara estar ciente e de acordo com os seguintes pontos:\n" +
+                                "1 - Permitir o rastreamento da criança para garantir sua segurança.\n " +
+                                "2 - Coleta de dados: Permite coletar dados de localização da criança e do responsável.\n" +
+                                "3 - Notificações: O responsável receberá alertas e deverá tomar as devidas providências sempre que necessário. \n" +
+                                "4 - Compartilhamento: Os dados não serão compartilhados com terceiros, exceto por obrigação legal.\n" +
+                                "5 - Segurança: Os dados são armazenados em ambiente seguro e protegido.\n" +
+                                "6 - Direitos do Responsável:" +
+                                "7 - A qualquer momento, é possível solicitar a exclusão de dados ou revogar os direitos do aplicativo no celular.\n" +
+                                "8 - Consentimento: O uso do aplicativo está condicionado à aceitação deste termo. Suas informações serão utilizadas apenas para fins de funcionamento do app, conforme descrito na política.")
                     },
                     confirmButton = {
                         Button(onClick = { showTermsDialog = false }) {

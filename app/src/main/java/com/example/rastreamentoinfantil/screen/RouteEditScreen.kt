@@ -4,6 +4,8 @@ package com.example.rastreamentoinfantil.screen
 import android.util.Log
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
@@ -19,6 +21,7 @@ import androidx.navigation.NavController
 import kotlin.collections.map
 import kotlin.collections.forEachIndexed
 import com.example.rastreamentoinfantil.model.RoutePoint
+import com.example.rastreamentoinfantil.model.User
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
@@ -53,12 +56,18 @@ fun RouteEditScreen(
         mutableStateOf(existingRoute?.destination?.let { LatLng(it.latitude, it.longitude) })
     }
     var isRouteActive by rememberSaveable(existingRoute) { mutableStateOf(existingRoute?.isActive ?: false) }
+    var selectedActiveDays by rememberSaveable(existingRoute) { mutableStateOf(existingRoute?.activeDays ?: emptyList()) }
+    var selectedTargetUserId by rememberSaveable(existingRoute) { mutableStateOf(existingRoute?.targetUserId ?: "") }
 
     var displayableEncodedPolyline by remember { mutableStateOf<String?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Verificação de autenticação
+    // Observar dados do ViewModel
+    val isResponsible by mainViewModel.isResponsible.collectAsStateWithLifecycle()
+    val familyMembers by mainViewModel.familyMembers.collectAsStateWithLifecycle()
+
+    // Verificação de autenticação e responsável
     val firebaseUser = FirebaseAuth.getInstance().currentUser
     if (firebaseUser == null) {
         Log.w("RouteEditScreen", "Tentativa de acessar criação de rota sem usuário logado!")
@@ -68,6 +77,22 @@ fun RouteEditScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Text("Usuário não autenticado. Faça login para criar uma rota.")
+        }
+        return
+    }
+
+    // Verificar se é responsável
+    if (!isResponsible) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("Apenas responsáveis podem criar e editar rotas.")
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = { navController.popBackStack() }) {
+                Text("Voltar")
+            }
         }
         return
     }
@@ -102,6 +127,8 @@ fun RouteEditScreen(
             destinationPoint = routeData.destination?.let { coord -> LatLng(coord.latitude, coord.longitude) }
             routePoints = routeData.waypoints?.map { coord -> LatLng(coord.latitude, coord.longitude) } ?: emptyList()
             isRouteActive = routeData.isActive
+            selectedActiveDays = routeData.activeDays
+            selectedTargetUserId = routeData.targetUserId ?: ""
             displayableEncodedPolyline = routeData.encodedPolyline // Carrega o polyline existente para exibição
         } else if (routeId == null) { // Modo Criação (ou existingRoute é nulo e é criação)
             routeName = ""
@@ -109,6 +136,8 @@ fun RouteEditScreen(
             destinationPoint = null
             routePoints = emptyList()
             isRouteActive = false
+            selectedActiveDays = emptyList()
+            selectedTargetUserId = ""
             displayableEncodedPolyline = null
         }
         // Se existingRoute for nulo E routeId NÃO for nulo, significa que estamos esperando dados de edição que ainda não chegaram.
@@ -159,7 +188,9 @@ fun RouteEditScreen(
                                     originPoint = finalOrigin,
                                     destinationPoint = finalDestination,
                                     waypointsList = finalWaypoints.takeIf { it.isNotEmpty() }, // Passa null se vazio
-                                    isActive = isRouteActive
+                                    isActive = isRouteActive,
+                                    activeDays = selectedActiveDays,
+                                    targetUserId = selectedTargetUserId.takeIf { it.isNotEmpty() }
                                     // routeColor pode ser adicionado como parâmetro aqui se você tiver um seletor de cor na UI
                                 )
                             } else if (routeId != null && existingRoute != null) {
@@ -168,8 +199,12 @@ fun RouteEditScreen(
                             val routeToUpdate = existingRoute!!.copy( // Sabemos que existingRoute não é nulo aqui
                                 name = routeName,
                                 isActive = isRouteActive,
+                                activeDays = selectedActiveDays,
+                                targetUserId = selectedTargetUserId.takeIf { it.isNotEmpty() },
                                 // Certifique-se que o encodedPolyline existente é mantido
-                                encodedPolyline = existingRoute!!.encodedPolyline
+                                encodedPolyline = existingRoute!!.encodedPolyline,
+                                // Preservar o campo createdByUserId
+                                createdByUserId = existingRoute!!.createdByUserId
                             )
                             mainViewModel.addOrUpdateRoute(routeToUpdate) // Assume que addOrUpdateRoute não recalcula o polyline
                         } else {
@@ -181,7 +216,9 @@ fun RouteEditScreen(
                                 originPoint = finalOrigin,
                                 destinationPoint = finalDestination,
                                 waypointsList = finalWaypoints.takeIf { it.isNotEmpty() },
-                                isActive = isRouteActive
+                                isActive = isRouteActive,
+                                activeDays = selectedActiveDays,
+                                targetUserId = selectedTargetUserId.takeIf { it.isNotEmpty() }
                             )
                         }
                         } else {
@@ -227,6 +264,65 @@ fun RouteEditScreen(
                 )
             }
 
+            Spacer(Modifier.height(16.dp))
+            
+            // Seleção de dias da semana
+            Text("Dias da Semana:", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            val weekDays = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+            LazyColumn(
+                modifier = Modifier.height(200.dp),
+                horizontalAlignment = Alignment.Start
+            ) {
+                items(weekDays) { day ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedActiveDays.contains(day),
+                            onCheckedChange = { checked ->
+                                selectedActiveDays = if (checked) {
+                                    selectedActiveDays + day
+                                } else {
+                                    selectedActiveDays - day
+                                }
+                            }
+                        )
+                        Text(day, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            
+            // Seleção de usuário da família
+            Text("Usuário da Família:", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            if (familyMembers.isNotEmpty()) {
+                LazyColumn(
+                    modifier = Modifier.height(150.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    items(familyMembers) { member ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectedTargetUserId == member.id,
+                                onClick = { selectedTargetUserId = member.id ?: "" }
+                            )
+                            Column {
+                                Text(member.name ?: "Sem nome", style = MaterialTheme.typography.bodyMedium)
+                                Text(member.email ?: "", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("Nenhum membro da família encontrado", style = MaterialTheme.typography.bodySmall)
+            }
 
             Spacer(Modifier.height(16.dp))
             Text("Definir no Mapa:", style = MaterialTheme.typography.titleMedium)

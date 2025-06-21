@@ -31,10 +31,10 @@ fun RoutesListScreen(
     val routes by mainViewModel.routes.collectAsStateWithLifecycle()
     val isLoading by mainViewModel.isLoadingRoutes.collectAsStateWithLifecycle()
     val routeOpStatus by mainViewModel.routeOperationStatus.collectAsStateWithLifecycle()
+    val isResponsible by mainViewModel.isResponsible.collectAsStateWithLifecycle()
 
     val scaffoldState = rememberBottomSheetScaffoldState() // Para Snackbar
     val snackbarHostState = remember { SnackbarHostState() }
-
 
     LaunchedEffect(routeOpStatus) {
         when (val status = routeOpStatus) {
@@ -63,10 +63,12 @@ fun RoutesListScreen(
             TopAppBar(title = { Text("Minhas Rotas") })
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                navController.navigate("routeCreate") // Navegar para a tela de criação
-            }) {
-                Icon(Icons.Filled.Add, "Adicionar Rota")
+            if (isResponsible) {
+                FloatingActionButton(onClick = {
+                    navController.navigate("routeCreate") // Navegar para a tela de criação
+                }) {
+                    Icon(Icons.Filled.Add, "Adicionar Rota")
+                }
             }
         }
     ) { paddingValues ->
@@ -76,10 +78,22 @@ fun RoutesListScreen(
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             } else if (routes.isEmpty()) {
-                Text(
-                    "Nenhuma rota definida ainda. Clique no botão '+' para adicionar.",
-                    modifier = Modifier.align(Alignment.Center).padding(16.dp)
-                )
+                Column(
+                    modifier = Modifier.align(Alignment.Center).padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        if (isResponsible) "Nenhuma rota definida ainda. Clique no botão '+' para adicionar."
+                        else "Nenhuma rota disponível para você."
+                    )
+                    if (!isResponsible) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Apenas responsáveis podem criar e gerenciar rotas.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -89,13 +103,18 @@ fun RoutesListScreen(
                     items(routes, key = { it.id!! }) { route ->
                         RouteItem(
                             route = route,
+                            isResponsible = isResponsible,
                             onEdit = {
-                                // Navegar para a tela de edição, passando o ID da rota
-                                navController.navigate("routeEdit/${route.id!!}")
+                                if (isResponsible) {
+                                    // Navegar para a tela de edição, passando o ID da rota
+                                    navController.navigate("routeEdit/${route.id!!}")
+                                }
                             },
                             onDelete = {
-                                // Adicionar diálogo de confirmação antes de deletar
-                                mainViewModel.deleteRoute(route.id!!)
+                                if (isResponsible) {
+                                    // Adicionar diálogo de confirmação antes de deletar
+                                    mainViewModel.deleteRoute(route.id!!)
+                                }
                             }
                         )
                     }
@@ -108,6 +127,7 @@ fun RoutesListScreen(
 @Composable
 fun RouteItem(
     route: Route,
+    isResponsible: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -129,13 +149,18 @@ fun RouteItem(
                 Text("Destino: ${route.destination?.address ?: "Não definido"}", style = MaterialTheme.typography.bodySmall)
                 Text("Pontos: ${route.waypoints?.size}", style = MaterialTheme.typography.bodySmall)
                 Text(if(route.isActive) "Ativa" else "Inativa", style = MaterialTheme.typography.bodySmall)
-            }
-            Row {
-                IconButton(onClick = onEdit) {
-                    Icon(Icons.Filled.Edit, contentDescription = "Editar Rota")
+                if (route.activeDays.isNotEmpty()) {
+                    Text("Dias: ${route.activeDays.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Deletar Rota")
+            }
+            if (isResponsible) {
+                Row {
+                    IconButton(onClick = onEdit) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Editar Rota")
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Deletar Rota")
+                    }
                 }
             }
         }

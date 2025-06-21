@@ -1,6 +1,10 @@
 package com.example.rastreamentoinfantil.screen
 
 import android.util.Log
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -9,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavType
@@ -17,6 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.rastreamentoinfantil.MainActivity
+import com.example.rastreamentoinfantil.RastreamentoInfantilApp
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
 import com.example.rastreamentoinfantil.viewmodel.FamilyViewModel
 import com.example.rastreamentoinfantil.viewmodel.LoginViewModel
@@ -51,36 +57,44 @@ fun Navigation(
         LoginViewModelFactory(firebaseRepository)
     )[LoginViewModel::class.java]
 
-    // Estado reativo para detectar mudanças na autenticação
-    val isLoggedIn by loginViewModel.isLoggedIn.observeAsState(initial = false)
+    // Usar estado global da aplicação diretamente
+    var isLoggedIn by remember { mutableStateOf(RastreamentoInfantilApp.isUserLoggedIn) }
+    var isCheckingAuth by remember { mutableStateOf(!RastreamentoInfantilApp.isAuthChecked) }
     var currentUser by remember { mutableStateOf(FirebaseAuth.getInstance().currentUser) }
     var currentUserId by remember { mutableStateOf(currentUser?.uid ?: "") }
     var currentUserEmail by remember { mutableStateOf(currentUser?.email ?: "") }
 
-    // Verificar estado de autenticação quando o componente é criado
+    // Observar mudanças no estado global da aplicação
     LaunchedEffect(Unit) {
-        loginViewModel.checkAuthenticationState()
+        RastreamentoInfantilApp.addAuthStateCallback {
+            isLoggedIn = RastreamentoInfantilApp.isUserLoggedIn
+            isCheckingAuth = !RastreamentoInfantilApp.isAuthChecked
+            currentUser = FirebaseAuth.getInstance().currentUser
+            currentUserId = currentUser?.uid ?: ""
+            currentUserEmail = currentUser?.email ?: ""
+            
+            Log.d("Navigation", "Estado atualizado: isLoggedIn=$isLoggedIn, isCheckingAuth=$isCheckingAuth")
+        }
     }
 
     // Observar mudanças no estado de login
-    LaunchedEffect(isLoggedIn) {
-        currentUser = FirebaseAuth.getInstance().currentUser
-        currentUserId = currentUser?.uid ?: ""
-        currentUserEmail = currentUser?.email ?: ""
+    LaunchedEffect(isLoggedIn, isCheckingAuth) {
+        Log.d("Navigation", "Estado de login mudou: isLoggedIn=$isLoggedIn, isCheckingAuth=$isCheckingAuth, currentUser=$currentUser")
         
-        Log.d("Navigation", "Estado de login mudou: isLoggedIn=$isLoggedIn, currentUser=$currentUser")
-        
-        if (!isLoggedIn && currentUser == null) {
-            // Usuário não está logado, navegar para login
-            navController.navigate(AppDestinations.LOGIN_SCREEN) {
-                popUpTo(0) { inclusive = true }
-                launchSingleTop = true
-            }
-        } else if (isLoggedIn && currentUser != null) {
-            // Usuário está logado, navegar para mapa
-            navController.navigate(AppDestinations.MAP_SCREEN) {
-                popUpTo(0) { inclusive = true }
-                launchSingleTop = true
+        // Só navegar após a verificação inicial de autenticação estar completa
+        if (!isCheckingAuth) {
+            if (!isLoggedIn && currentUser == null) {
+                // Usuário não está logado, navegar para login
+                navController.navigate(AppDestinations.LOGIN_SCREEN) {
+                    popUpTo(0) { inclusive = true }
+                    launchSingleTop = true
+                }
+            } else if (isLoggedIn && currentUser != null) {
+                // Usuário está logado, navegar para mapa
+                navController.navigate(AppDestinations.MAP_SCREEN) {
+                    popUpTo(0) { inclusive = true }
+                    launchSingleTop = true
+                }
             }
         }
     }
@@ -105,9 +119,23 @@ fun Navigation(
     NavHost(navController = navController, startDestination = AppDestinations.LOGIN_SCREEN) {
 
         composable(AppDestinations.LOGIN_SCREEN) {
-            println(">>>>>>>>> login screen<<<< ")
-            LoginScreen(loginViewModel, navController)
+            if (isCheckingAuth) {
+                // Mostrar loading enquanto verifica autenticação
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(50.dp),
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.primary
+                    )
+                }
+            } else {
+                println(">>>>>>>>> login screen<<<< ")
+                LoginScreen(loginViewModel, navController)
+            }
         }
+        
         composable(AppDestinations.REGISTER_SCREEN) {
             RegisterScreen(loginViewModel, navController)
         }
@@ -119,13 +147,12 @@ fun Navigation(
             MapScreen(
                 modifier = Modifier,
                 mainViewModel = mainViewModel,
-                navController = navController // Adicionado navController
+                navController = navController
             )
         }
 
         composable(AppDestinations.GEOFENCE_CONFIG_SCREEN) {
-            // GeofenceConfigScreen(mainViewModel, navController) // Exemplo se você criar esta tela
-            // Por enquanto, vazio como no seu original
+            // GeofenceConfigScreen(mainViewModel, navController)
         }
 
         composable(AppDestinations.ROUTE_LIST_SCREEN) {

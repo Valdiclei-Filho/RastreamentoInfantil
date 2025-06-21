@@ -75,6 +75,7 @@ fun MapScreen(
     val isInsideGeofence by mainViewModel.isUserInsideGeofence.collectAsState()
     val routes by mainViewModel.routes.collectAsState()
     val isLoadingRoutes by mainViewModel.isLoadingRoutes.collectAsState()
+    val isResponsible by mainViewModel.isResponsible.collectAsStateWithLifecycle()
 
     var isEditingGeofence by remember { mutableStateOf(false) }
     var newGeofenceCenter by remember { mutableStateOf<LatLng?>(null) }
@@ -116,6 +117,11 @@ fun MapScreen(
         }
     }
 
+    // Filtrar rotas ativas para o dia atual
+    val activeRoutesForToday = remember(routes) {
+        mainViewModel.getActiveRoutesForToday()
+    }
+
     // Função auxiliar para parsear a cor da rota de forma segura
     // Usamos remember para que o cálculo só ocorra se route.routeColor mudar
     @Composable
@@ -151,7 +157,7 @@ fun MapScreen(
                 // O CircularProgressIndicator foi movido para a Column de controles.
             }
 
-            routes.forEach { route ->
+            activeRoutesForToday.forEach { route ->
                 val routeColor = rememberParsedRouteColor(route.routeColor, "#3F51B5")
 
                 // 1. Tente decodificar a polyline AQUI, fora de qualquer chamada Composable direta
@@ -325,8 +331,14 @@ fun MapScreen(
                 }
             }
             Spacer(modifier = Modifier.height(8.dp)) // Adicionado Spacer antes do botão de Gerenciar Rotas
-            Button(onClick = { navController.navigate(ROUTE_LIST_SCREEN) }) {
-                Text("Gerenciar Rotas")
+            if (isResponsible) {
+                Button(onClick = { navController.navigate(ROUTE_LIST_SCREEN) }) {
+                    Text("Gerenciar Rotas")
+                }
+            } else {
+                Button(onClick = { navController.navigate(ROUTE_LIST_SCREEN) }) {
+                    Text("Ver Rotas")
+                }
             }
             Spacer(modifier = Modifier.height(8.dp)) // Adicionado Spacer antes do botão de Gerenciar Familias
             Button(onClick = { navController.navigate(FAMILY_SCREEN) }) {

@@ -14,6 +14,9 @@ data class Route(
     var isActive: Boolean = false, // Se a rota está atualmente sendo monitorada
     var lastKnownStatus: String? = null, // Ex: "ON_ROUTE", "DEVIATED", "ARRIVED"
     var routeColor: String? = "#FF0000", // Cor da rota no mapa (Hex)
+    val activeDays: List<String> = emptyList(), // Dias da semana em que a rota está ativa
+    val targetUserId: String? = null, // ID do usuário da família para quem a rota é destinada
+    val createdByUserId: String = "", // ID do usuário que criou a rota (responsável)
     @ServerTimestamp // Define o timestamp no servidor ao criar/atualizar
     var createdAt: Date? = null,
     @ServerTimestamp

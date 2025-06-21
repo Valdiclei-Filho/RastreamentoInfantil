@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import com.example.rastreamentoinfantil.RastreamentoInfantilApp
 import com.example.rastreamentoinfantil.model.User
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
 
@@ -13,6 +14,10 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
 
     private val _isLoading = MutableLiveData<Boolean>()
     val isLoading: LiveData<Boolean> get() = _isLoading
+
+    // Estado para verificação inicial de autenticação
+    private val _isCheckingAuth = MutableLiveData<Boolean>(true)
+    val isCheckingAuth: LiveData<Boolean> get() = _isCheckingAuth
 
     private val _error = MutableLiveData<String?>()
     val error: LiveData<String?> get() = _error
@@ -24,14 +29,45 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
     private val _registerSuccess = MutableLiveData<Boolean>(false)
     val registerSuccess: LiveData<Boolean> get() = _registerSuccess
 
+    init {
+        // Sincronizar com o estado global da aplicação
+        syncWithAppAuthState()
+        
+        // Adicionar callback para mudanças no estado de autenticação
+        RastreamentoInfantilApp.addAuthStateCallback {
+            syncWithAppAuthState()
+        }
+    }
+
+    private fun syncWithAppAuthState() {
+        _isCheckingAuth.value = !RastreamentoInfantilApp.isAuthChecked
+        _isLoggedIn.value = RastreamentoInfantilApp.isUserLoggedIn
+        
+        if (RastreamentoInfantilApp.isUserLoggedIn) {
+            // Buscar dados do usuário se estiver logado
+            firebaseRepository.fetchUserData { userResult, exception ->
+                _user.value = userResult
+            }
+        } else {
+            _user.value = null
+        }
+    }
+
     fun registerUser(user: User, password: String) {
         _isLoading.value = true
         firebaseRepository.createUser(user, password) { success, message ->
             _isLoading.value = false
             if (success) {
-                _registerSuccess.value = true  // Indica sucesso no cadastro
+                _registerSuccess.value = true
                 _error.value = null
-                _isLoggedIn.value = true // Você pode manter ou não essa linha dependendo do fluxo
+                _isLoggedIn.value = true
+                
+                // Atualizar estado global
+                RastreamentoInfantilApp.updateAuthState(
+                    isLoggedIn = true,
+                    userId = user.id,
+                    userEmail = user.email
+                )
             } else {
                 _error.value = message
                 _isLoggedIn.value = false
@@ -48,6 +84,13 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
                 firebaseRepository.fetchUserData { userResult, exception ->
                     _user.value = userResult
                     _isLoggedIn.value = true
+                    
+                    // Atualizar estado global
+                    RastreamentoInfantilApp.updateAuthState(
+                        isLoggedIn = true,
+                        userId = userResult?.id,
+                        userEmail = userResult?.email
+                    )
                 }
                 _error.value = null
             } else {
@@ -63,19 +106,26 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
         _user.value = null
         _error.value = null
         _registerSuccess.value = false
+        
+        // Atualizar estado global
+        RastreamentoInfantilApp.updateAuthState(isLoggedIn = false)
+        
         Log.d("LoginViewModel", "Usuário deslogado e dados limpos")
     }
 
     fun checkAuthenticationState() {
-        val currentUser = firebaseRepository.getCurrentUser()
-        _isLoggedIn.value = currentUser != null
-        if (currentUser == null) {
-            _user.value = null
-        }
+        // Agora apenas sincroniza com o estado global
+        syncWithAppAuthState()
     }
 
     // Função para limpar o erro
     fun clearError() {
         _error.value = null
+    }
+    
+    override fun onCleared() {
+        super.onCleared()
+        // Remover callback para evitar memory leaks
+        RastreamentoInfantilApp.removeAuthStateCallback { syncWithAppAuthState() }
     }
 }
