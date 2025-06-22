@@ -14,46 +14,44 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
-import com.example.rastreamentoinfantil.model.Route
+import com.example.rastreamentoinfantil.model.Geofence
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
-import com.example.rastreamentoinfantil.viewmodel.MainViewModel.RouteOperationStatus // Importar o sealed interface
 import com.example.rastreamentoinfantil.ui.theme.rememberResponsiveDimensions
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoutesListScreen(
+fun GeofenceListScreen(
     navController: NavController,
-    mainViewModel: MainViewModel // Assumindo que será passado ou obtido via hiltViewModel()
+    mainViewModel: MainViewModel
 ) {
     val dimensions = rememberResponsiveDimensions()
     LaunchedEffect(Unit) {
         mainViewModel.syncCurrentUser()
     }
 
-    val routes by mainViewModel.routes.collectAsStateWithLifecycle()
-    val isLoading by mainViewModel.isLoadingRoutes.collectAsStateWithLifecycle()
-    val routeOpStatus by mainViewModel.routeOperationStatus.collectAsStateWithLifecycle()
+    val geofences by mainViewModel.geofences.collectAsStateWithLifecycle()
+    val isLoading by mainViewModel.isLoadingGeofences.collectAsStateWithLifecycle()
+    val geofenceOpStatus by mainViewModel.geofenceOperationStatus.collectAsStateWithLifecycle()
     val isResponsible by mainViewModel.isResponsible.collectAsStateWithLifecycle()
 
-    val scaffoldState = rememberBottomSheetScaffoldState() // Para Snackbar
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(routeOpStatus) {
-        when (val status = routeOpStatus) {
-            is RouteOperationStatus.Success -> {
+    LaunchedEffect(geofenceOpStatus) {
+        when (val status = geofenceOpStatus) {
+            is MainViewModel.GeofenceOperationStatus.Success -> {
                 snackbarHostState.showSnackbar(
                     message = status.message,
                     duration = SnackbarDuration.Short
                 )
-                mainViewModel.clearRouteOperationStatus() // Limpar o status
+                mainViewModel.clearGeofenceOperationStatus()
             }
-            is RouteOperationStatus.Error -> {
+            is MainViewModel.GeofenceOperationStatus.Error -> {
                 snackbarHostState.showSnackbar(
                     message = status.errorMessage,
                     duration = SnackbarDuration.Long,
                     withDismissAction = true
                 )
-                mainViewModel.clearRouteOperationStatus() // Limpar o status
+                mainViewModel.clearGeofenceOperationStatus()
             }
             else -> { /* Não faz nada para Loading ou Idle aqui */ }
         }
@@ -62,14 +60,14 @@ fun RoutesListScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(title = { Text("Minhas Rotas") })
+            TopAppBar(title = { Text("Minhas Áreas Seguras") })
         },
         floatingActionButton = {
             if (isResponsible) {
                 FloatingActionButton(onClick = {
-                    navController.navigate("routeCreate") // Navegar para a tela de criação
+                    navController.navigate("geofenceCreate")
                 }) {
-                    Icon(Icons.Filled.Add, "Adicionar Rota")
+                    Icon(Icons.Filled.Add, "Adicionar Área Segura")
                 }
             }
         }
@@ -79,19 +77,19 @@ fun RoutesListScreen(
             .fillMaxSize()) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (routes.isEmpty()) {
+            } else if (geofences.isEmpty()) {
                 Column(
                     modifier = Modifier.align(Alignment.Center).padding(dimensions.paddingMediumDp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        if (isResponsible) "Nenhuma rota definida ainda. Clique no botão '+' para adicionar."
-                        else "Nenhuma rota disponível para você."
+                        if (isResponsible) "Nenhuma área segura definida ainda. Clique no botão '+' para adicionar."
+                        else "Nenhuma área segura disponível para você."
                     )
                     if (!isResponsible) {
                         Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
                         Text(
-                            "Apenas responsáveis podem criar e gerenciar rotas.",
+                            "Apenas responsáveis podem criar e gerenciar áreas seguras.",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -102,20 +100,18 @@ fun RoutesListScreen(
                     contentPadding = PaddingValues(dimensions.paddingMediumDp),
                     verticalArrangement = Arrangement.spacedBy(dimensions.paddingSmallDp)
                 ) {
-                    items(routes, key = { it.id!! }) { route ->
-                        RouteItem(
-                            route = route,
+                    items(geofences, key = { it.id!! }) { geofence ->
+                        GeofenceItem(
+                            geofence = geofence,
                             isResponsible = isResponsible,
                             onEdit = {
                                 if (isResponsible) {
-                                    // Navegar para a tela de edição, passando o ID da rota
-                                    navController.navigate("routeEdit/${route.id!!}")
+                                    navController.navigate("geofenceEdit/${geofence.id!!}")
                                 }
                             },
                             onDelete = {
                                 if (isResponsible) {
-                                    // Adicionar diálogo de confirmação antes de deletar
-                                    mainViewModel.deleteRoute(route.id!!)
+                                    mainViewModel.deleteGeofence(geofence.id!!)
                                 }
                             }
                         )
@@ -127,8 +123,8 @@ fun RoutesListScreen(
 }
 
 @Composable
-fun RouteItem(
-    route: Route,
+fun GeofenceItem(
+    geofence: Geofence,
     isResponsible: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit
@@ -146,26 +142,22 @@ fun RouteItem(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(route.name, style = MaterialTheme.typography.titleMedium)
-                // Você pode adicionar mais detalhes aqui, como origem/destino resumidos
-                Text("Origem: ${route.origin?.address ?: "Não definido"}", style = MaterialTheme.typography.bodySmall)
-                Text("Destino: ${route.destination?.address ?: "Não definido"}", style = MaterialTheme.typography.bodySmall)
-                Text("Pontos: ${route.waypoints?.size}", style = MaterialTheme.typography.bodySmall)
-                Text(if(route.isActive) "Ativa" else "Inativa", style = MaterialTheme.typography.bodySmall)
-                if (route.activeDays.isNotEmpty()) {
-                    Text("Dias: ${route.activeDays.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
-                }
+                Text(geofence.name, style = MaterialTheme.typography.titleMedium)
+                Text("Raio: ${geofence.radius}m", style = MaterialTheme.typography.bodySmall)
+                Text("Lat: ${String.format("%.4f", geofence.coordinates.latitude)}", style = MaterialTheme.typography.bodySmall)
+                Text("Lng: ${String.format("%.4f", geofence.coordinates.longitude)}", style = MaterialTheme.typography.bodySmall)
+                Text(if(geofence.isActive) "Ativa" else "Inativa", style = MaterialTheme.typography.bodySmall)
             }
             if (isResponsible) {
                 Row {
                     IconButton(onClick = onEdit) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Editar Rota")
+                        Icon(Icons.Filled.Edit, contentDescription = "Editar Área Segura")
                     }
                     IconButton(onClick = onDelete) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Deletar Rota")
+                        Icon(Icons.Filled.Delete, contentDescription = "Deletar Área Segura")
                     }
                 }
             }
         }
     }
-}
+} 

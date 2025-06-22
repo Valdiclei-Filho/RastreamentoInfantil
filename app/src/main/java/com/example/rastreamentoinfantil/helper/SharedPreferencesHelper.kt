@@ -63,7 +63,7 @@ object SharedPreferencesHelper {
         // 2. Crie a instância de Geofence usando sua classe Coordinate
         val geofence = Geofence(
             id = id,
-            name = name,
+            name = name ?: "", // Garantir que name seja uma String não-nula
             radius = radius,
             coordinates = loadedCoordinates // Passe sua instância de Coordinate aqui
         )

@@ -19,6 +19,7 @@ import com.example.rastreamentoinfantil.viewmodel.FamilyViewModelFactory
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
 import com.google.firebase.auth.FirebaseAuth
 import android.util.Log
+import com.example.rastreamentoinfantil.ui.theme.rememberResponsiveDimensions
 
 @Composable
 fun FamilyScreen(navController: NavController) {
@@ -37,6 +38,7 @@ fun FamilyScreen(navController: NavController) {
 
 @Composable
 fun FamilyScreenContent(viewModel: FamilyViewModel, navController: NavController) {
+    val dimensions = rememberResponsiveDimensions()
     // Observers e estados
     val family by viewModel.family.observeAsState()
     val members by viewModel.members.observeAsState(emptyList())
@@ -54,7 +56,7 @@ fun FamilyScreenContent(viewModel: FamilyViewModel, navController: NavController
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 16.dp, end = 16.dp, top = 60.dp)
+            .padding(start = dimensions.paddingMediumDp, end = dimensions.paddingMediumDp, top = dimensions.paddingLargeDp),
     ) {
         IconButton(onClick = { navController.popBackStack() }) {
             Icon(
@@ -63,25 +65,25 @@ fun FamilyScreenContent(viewModel: FamilyViewModel, navController: NavController
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
 
         if (loading) {
             CircularProgressIndicator()
         } else {
             if (currentFamily == null) {
                 Text("Você não pertence a nenhuma família.")
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
 
                 if (invites.isEmpty()) {
                     Text("Nenhum convite pendente.")
                 } else {
                     Text("Convites pendentes:")
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
                     invites.forEach { invite ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = dimensions.paddingSmallDp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(invite.familyName, style = MaterialTheme.typography.bodyLarge)
@@ -92,7 +94,7 @@ fun FamilyScreenContent(viewModel: FamilyViewModel, navController: NavController
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
 
                 var familyName by remember { mutableStateOf("") }
                 OutlinedTextField(
@@ -102,7 +104,7 @@ fun FamilyScreenContent(viewModel: FamilyViewModel, navController: NavController
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
                 Button(
                     onClick = { viewModel.createFamily(familyName) },
                     modifier = Modifier.fillMaxWidth()
@@ -111,14 +113,14 @@ fun FamilyScreenContent(viewModel: FamilyViewModel, navController: NavController
                 }
             } else {
                 Text("Família: ${currentFamily.name}", style = MaterialTheme.typography.bodyLarge)
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
                 Text("Membros:")
                 members.forEach { member ->
                     Text("- ${member.name} (${member.email})")
                 }
 
                 if (currentFamily.responsibleId == viewModel.currentUserId) {
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
                     var emailToInvite by remember { mutableStateOf("") }
                     OutlinedTextField(
                         value = emailToInvite,
@@ -127,7 +129,7 @@ fun FamilyScreenContent(viewModel: FamilyViewModel, navController: NavController
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
                     Button(
                         onClick = { viewModel.sendInvite(emailToInvite) },
                         modifier = Modifier.fillMaxWidth()
@@ -135,14 +137,14 @@ fun FamilyScreenContent(viewModel: FamilyViewModel, navController: NavController
                         Text("Enviar Convite")
                     }
                 } else {
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
                     Text("Você não é o responsável pela família.")
                 }
             }
         }
 
         message?.let {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
             Text(it, color = Color.Red)
             LaunchedEffect(it) {
                 delay(3000)

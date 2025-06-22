@@ -109,6 +109,7 @@ class MainViewModel(
     // Removido: private var currentGeofence: Geofence? = null
     // Usaremos _geofenceArea.value como a fonte da verdade para a geofence ativa
     private var currentUserId: String? = null
+    private var isLocationMonitoringActive: Boolean = false // Flag para controlar se o monitoramento está ativo
 
     private var lastKnownRouteStatus: Boolean? = null
     private val _isLocationOnRoute = MutableStateFlow<Boolean?>(null)
@@ -130,6 +131,25 @@ class MainViewModel(
     private val _isResponsible = MutableStateFlow<Boolean>(false)
     val isResponsible: StateFlow<Boolean> = _isResponsible.asStateFlow()
 
+    // Novos campos para geofences
+    private val _geofences = MutableStateFlow<List<Geofence>>(emptyList())
+    val geofences: StateFlow<List<Geofence>> = _geofences.asStateFlow()
+
+    private val _isLoadingGeofences = MutableStateFlow<Boolean>(false)
+    val isLoadingGeofences: StateFlow<Boolean> = _isLoadingGeofences.asStateFlow()
+
+    sealed interface GeofenceOperationStatus {
+        data class Success(val message: String, val geofenceId: String? = null) : GeofenceOperationStatus
+        data class Error(val errorMessage: String) : GeofenceOperationStatus
+        object Loading : GeofenceOperationStatus
+        object Idle : GeofenceOperationStatus
+    }
+    private val _geofenceOperationStatus = MutableStateFlow<GeofenceOperationStatus>(GeofenceOperationStatus.Idle)
+    val geofenceOperationStatus: StateFlow<GeofenceOperationStatus> = _geofenceOperationStatus.asStateFlow()
+
+    private val _selectedGeofence = MutableStateFlow<Geofence?>(null)
+    val selectedGeofence: StateFlow<Geofence?> = _selectedGeofence.asStateFlow()
+
     data class RouteDeviation(
         val routeId: String,
         val routeName: String,
@@ -141,27 +161,31 @@ class MainViewModel(
     init {
         Log.d(TAG1, "Inicializando MainViewModel")
         
-        // Inicializa o monitoramento de localização em uma coroutine separada
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                startLocationMonitoring()
-                Log.d(TAG1, "Monitoramento de localização iniciado com sucesso")
-            } catch (e: Exception) {
-                Log.e(TAG1, "Erro ao iniciar monitoramento de localização", e)
-                _error.value = "Erro ao iniciar monitoramento de localização: ${e.message}"
-            }
-        }
+        // Não inicia monitoramento automaticamente no init
+        // Será iniciado explicitamente pela MainActivity quando necessário
     }
 
     fun startLocationMonitoring() {
-        Log.d(TAG1, "Iniciando monitoramento de localização")
+        if (isLocationMonitoringActive) {
+            Log.d(TAG1, "startLocationMonitoring: Monitoramento já está ativo, ignorando chamada")
+            return
+        }
+        
+        Log.d(TAG1, "startLocationMonitoring: Iniciando monitoramento de localização")
+        isLocationMonitoringActive = true
+        
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 locationService.startLocationUpdates { location ->
                     _currentLocation.value = location
                     Log.d(TAG1, "Nova localização recebida: (${location.latitude}, ${location.longitude})")
                     
-                    // Verifica rotas ativas em uma coroutine separada
+                    // Salvar localização no Firebase
+                    currentUserId?.let { userId ->
+                        saveLocationToFirebase(location, userId)
+                    }
+                    
+                    // Verifica rotas ativas em uma coroutine separada com prioridade baixa
                     viewModelScope.launch(Dispatchers.Default) {
                         checkActiveRoutes(location)
                     }
@@ -170,6 +194,58 @@ class MainViewModel(
             } catch (e: Exception) {
                 Log.e(TAG1, "Erro ao iniciar serviço de localização", e)
                 _error.value = "Erro ao iniciar serviço de localização: ${e.message}"
+                isLocationMonitoringActive = false // Reset da flag em caso de erro
+            }
+        }
+    }
+
+    /**
+     * Para o monitoramento de localização
+     */
+    fun stopLocationMonitoring() {
+        if (!isLocationMonitoringActive) {
+            Log.d(TAG1, "stopLocationMonitoring: Monitoramento não está ativo")
+            return
+        }
+        
+        Log.d(TAG1, "stopLocationMonitoring: Parando monitoramento de localização")
+        locationService.stopLocationUpdates()
+        isLocationMonitoringActive = false
+    }
+
+    /**
+     * Salva a localização atual no Firebase
+     */
+    private fun saveLocationToFirebase(location: Location, userId: String) {
+        Log.d(TAG1, "saveLocationToFirebase: Iniciando salvamento da localização para usuário: $userId")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                Log.d(TAG1, "saveLocationToFirebase: Obtendo endereço da localização")
+                // Obter endereço da localização
+                geocodingService.getAddressFromLocation(location) { address ->
+                    Log.d(TAG1, "saveLocationToFirebase: Endereço obtido: $address")
+                    val locationRecord = LocationRecord(
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        address = address,
+                        dateTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()),
+                        isOutOfRoute = false // Será atualizado pela verificação de rotas
+                    )
+                    
+                    Log.d(TAG1, "saveLocationToFirebase: Salvando LocationRecord no Firebase")
+                    firebaseRepository.saveLocationRecord(locationRecord, userId) { success, exception ->
+                        if (success) {
+                            Log.d(TAG1, "saveLocationToFirebase: Localização salva no Firebase com sucesso: (${location.latitude}, ${location.longitude})")
+                            // Recarregar registros de localização para atualizar a UI apenas se necessário
+                            // Comentado para evitar múltiplas chamadas desnecessárias
+                            // loadLocationRecords()
+                        } else {
+                            Log.e(TAG1, "saveLocationToFirebase: Erro ao salvar localização no Firebase", exception)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG1, "saveLocationToFirebase: Erro ao processar localização para salvar", e)
             }
         }
     }
@@ -332,67 +408,20 @@ class MainViewModel(
         }
     }
     fun loadUserRoutes(userId: String) {
-        viewModelScope.launch {
-            _isLoadingRoutes.value = true
-            
-            // Verificar se o usuário atual tem família
-            val currentUserData = _currentUser.value
-            val familyId = currentUserData?.familyId
-            
-            if (isResponsible.value) {
-                // Responsáveis: buscar rotas na própria coleção
-                firebaseRepository.getUserRoutes(userId) { routesResult, exception ->
-                    _isLoadingRoutes.value = false
-                    if (exception != null) {
-                        _routes.value = emptyList()
-                        _error.value = "Falha ao carregar rotas: ${exception.message}"
-                        Log.e(TAG, "Erro ao carregar rotas para o responsável $userId", exception)
-                    } else {
-                        val allRoutes = routesResult?.filter { it.id != null } ?: emptyList()
-                        // Responsáveis veem todas as rotas que criaram
-                        val filteredRoutes = allRoutes.filter { it.createdByUserId == userId }
-                        // Desduplicar rotas baseado no ID para evitar chaves duplicadas no LazyColumn
-                        val uniqueRoutes = filteredRoutes.distinctBy { it.id }
-                        _routes.value = uniqueRoutes
-                        Log.d(TAG, "Rotas carregadas para o responsável $userId: ${uniqueRoutes.size} rotas únicas (de ${filteredRoutes.size} total)")
-                    }
-                }
-            } else if (familyId != null) {
-                // Membros da família: buscar rotas em todas as coleções da família
-                firebaseRepository.getRoutesForFamilyMember(userId, familyId) { routesResult, exception ->
-                    _isLoadingRoutes.value = false
-                    if (exception != null) {
-                        _routes.value = emptyList()
-                        _error.value = "Falha ao carregar rotas: ${exception.message}"
-                        Log.e(TAG, "Erro ao carregar rotas para o membro $userId", exception)
-                    } else {
-                        val allRoutes = routesResult?.filter { it.id != null } ?: emptyList()
-                        // Membros veem apenas rotas onde são o targetUserId
-                        val filteredRoutes = allRoutes.filter { it.targetUserId == userId }
-                        // Desduplicar rotas baseado no ID para evitar chaves duplicadas no LazyColumn
-                        val uniqueRoutes = filteredRoutes.distinctBy { it.id }
-                        _routes.value = uniqueRoutes
-                        Log.d(TAG, "Rotas carregadas para o membro $userId: ${uniqueRoutes.size} rotas únicas (de ${filteredRoutes.size} total)")
-                    }
-                }
+        _isLoadingRoutes.value = true
+        firebaseRepository.getUserRoutes(userId) { routes, error ->
+            _isLoadingRoutes.value = false
+            if (error != null) {
+                Log.e(TAG1, "Erro ao carregar rotas", error)
+                _error.value = "Erro ao carregar rotas: ${error.message}"
             } else {
-                // Usuário sem família: buscar rotas na própria coleção (fallback)
-                firebaseRepository.getUserRoutes(userId) { routesResult, exception ->
-                    _isLoadingRoutes.value = false
-                    if (exception != null) {
-                        _routes.value = emptyList()
-                        _error.value = "Falha ao carregar rotas: ${exception.message}"
-                        Log.e(TAG, "Erro ao carregar rotas para o usuário $userId", exception)
-                    } else {
-                        val allRoutes = routesResult?.filter { it.id != null } ?: emptyList()
-                        // Desduplicar rotas baseado no ID para evitar chaves duplicadas no LazyColumn
-                        val uniqueRoutes = allRoutes.distinctBy { it.id }
-                        _routes.value = uniqueRoutes
-                        Log.d(TAG, "Rotas carregadas para o usuário $userId (sem família): ${uniqueRoutes.size} rotas únicas (de ${allRoutes.size} total)")
-                    }
-                }
+                _routes.value = routes ?: emptyList()
+                Log.d(TAG1, "Rotas carregadas: ${routes?.size ?: 0}")
             }
         }
+        
+        // Também carregar geofences do usuário
+        loadUserGeofences()
     }
     fun addOrUpdateRoute(route: Route) {
         val firebaseUser = FirebaseAuth.getInstance().currentUser
@@ -691,8 +720,12 @@ class MainViewModel(
             loadCurrentUserData()
             // Carregar rotas após determinar o tipo de usuário
             loadUserRoutes(firebaseUser.uid)
+            // Iniciar monitoramento de localização
+            startLocationMonitoring()
         } else {
             currentUserId = null
+            // Parar monitoramento se não há usuário logado
+            stopLocationMonitoring()
             Log.w(TAG1, "syncCurrentUser: Nenhum usuário logado!")
         }
     }
@@ -729,7 +762,7 @@ class MainViewModel(
     }
 
     /**
-     * Carrega membros da família
+     * Carrega membros da família (excluindo o responsável)
      */
     private fun loadFamilyMembers(familyId: String) {
         firebaseRepository.getFamilyDetails(familyId) { family, members, error ->
@@ -737,8 +770,13 @@ class MainViewModel(
                 Log.e(TAG1, "Erro ao carregar membros da família", error)
                 _error.value = "Erro ao carregar membros da família: ${error.message}"
             } else {
-                _familyMembers.value = members ?: emptyList()
-                Log.d(TAG1, "Membros da família carregados: ${members?.size ?: 0}")
+                // Filtrar apenas membros (excluindo responsáveis)
+                val filteredMembers = members?.filter { member ->
+                    member.type != "responsavel"
+                } ?: emptyList()
+                
+                _familyMembers.value = filteredMembers
+                Log.d(TAG1, "Membros da família carregados (excluindo responsável): ${filteredMembers.size} de ${members?.size ?: 0} total")
             }
         }
     }
@@ -783,6 +821,140 @@ class MainViewModel(
                 (isResponsible.value && route.createdByUserId == currentUserId) ||
                 // Membros veem apenas rotas onde são o targetUserId
                 (!isResponsible.value && route.targetUserId == currentUserId)
+            )
+        }
+    }
+
+    // ==================== FUNÇÕES DE GEOFENCE ====================
+
+    /**
+     * Carrega geofences do usuário atual
+     */
+    fun loadUserGeofences() {
+        currentUserId?.let { userId ->
+            _isLoadingGeofences.value = true
+            firebaseRepository.getUserGeofences(userId) { geofences, error ->
+                _isLoadingGeofences.value = false
+                if (error != null) {
+                    Log.e(TAG1, "Erro ao carregar geofences", error)
+                    _error.value = "Erro ao carregar áreas seguras: ${error.message}"
+                } else {
+                    _geofences.value = geofences ?: emptyList()
+                    Log.d(TAG1, "Geofences carregadas: ${geofences?.size ?: 0}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Carrega detalhes de uma geofence específica
+     */
+    fun loadGeofenceDetails(geofenceId: String) {
+        firebaseRepository.getGeofenceById(geofenceId) { geofence, error ->
+            if (error != null) {
+                Log.e(TAG1, "Erro ao carregar detalhes da geofence", error)
+                _error.value = "Erro ao carregar detalhes da área segura: ${error.message}"
+            } else {
+                _selectedGeofence.value = geofence
+                Log.d(TAG1, "Detalhes da geofence carregados: ${geofence?.name}")
+            }
+        }
+    }
+
+    /**
+     * Cria uma nova geofence
+     */
+    fun createGeofence(geofence: Geofence) {
+        _geofenceOperationStatus.value = GeofenceOperationStatus.Loading
+        currentUserId?.let { userId ->
+            firebaseRepository.saveGeofence(userId, geofence) { geofenceId, exception ->
+                if (exception != null) {
+                    _geofenceOperationStatus.value = GeofenceOperationStatus.Error(exception.message ?: "Falha ao criar área segura.")
+                    Log.e(TAG1, "Erro ao criar geofence ${geofence.id}", exception)
+                } else if (geofenceId != null) {
+                    _geofenceOperationStatus.value = GeofenceOperationStatus.Success("Área segura '${geofence.name}' criada!", geofenceId)
+                    loadUserGeofences() // Recarregar geofences após criar
+                } else {
+                    _geofenceOperationStatus.value = GeofenceOperationStatus.Error("Falha desconhecida ao criar área segura.")
+                    Log.e(TAG1, "Erro desconhecido ao criar geofence ${geofence.id}")
+                }
+            }
+        } ?: run {
+            _geofenceOperationStatus.value = GeofenceOperationStatus.Error("Usuário não logado. Não é possível criar a área segura.")
+            Log.w(TAG1, "Tentativa de criar geofence sem usuário logado.")
+        }
+    }
+
+    /**
+     * Atualiza uma geofence existente
+     */
+    fun updateGeofence(geofence: Geofence) {
+        _geofenceOperationStatus.value = GeofenceOperationStatus.Loading
+        currentUserId?.let { userId ->
+            firebaseRepository.saveGeofence(userId, geofence) { geofenceId, exception ->
+                if (exception != null) {
+                    _geofenceOperationStatus.value = GeofenceOperationStatus.Error(exception.message ?: "Falha ao atualizar área segura.")
+                    Log.e(TAG1, "Erro ao atualizar geofence ${geofence.id}", exception)
+                } else if (geofenceId != null) {
+                    _geofenceOperationStatus.value = GeofenceOperationStatus.Success("Área segura '${geofence.name}' atualizada!", geofenceId)
+                    loadUserGeofences() // Recarregar geofences após atualizar
+                } else {
+                    _geofenceOperationStatus.value = GeofenceOperationStatus.Error("Falha desconhecida ao atualizar área segura.")
+                    Log.e(TAG1, "Erro desconhecido ao atualizar geofence ${geofence.id}")
+                }
+            }
+        } ?: run {
+            _geofenceOperationStatus.value = GeofenceOperationStatus.Error("Usuário não logado. Não é possível atualizar a área segura.")
+            Log.w(TAG1, "Tentativa de atualizar geofence sem usuário logado.")
+        }
+    }
+
+    /**
+     * Deleta uma geofence
+     */
+    fun deleteGeofence(geofenceId: String) {
+        _geofenceOperationStatus.value = GeofenceOperationStatus.Loading
+        currentUserId?.let { userId ->
+            firebaseRepository.deleteGeofence(userId, geofenceId) { exception ->
+                if (exception != null) {
+                    _geofenceOperationStatus.value = GeofenceOperationStatus.Error(exception.message ?: "Falha ao deletar área segura.")
+                    Log.e(TAG1, "Erro ao deletar geofence $geofenceId", exception)
+                } else {
+                    _geofenceOperationStatus.value = GeofenceOperationStatus.Success("Área segura deletada!")
+                    loadUserGeofences() // Recarregar geofences após deletar
+                }
+            }
+        } ?: run {
+            _geofenceOperationStatus.value = GeofenceOperationStatus.Error("Usuário não logado. Não é possível deletar a área segura.")
+            Log.w(TAG1, "Tentativa de deletar geofence sem usuário logado.")
+        }
+    }
+
+    /**
+     * Limpa o status de operação de geofence
+     */
+    fun clearGeofenceOperationStatus() {
+        _geofenceOperationStatus.value = GeofenceOperationStatus.Idle
+    }
+
+    /**
+     * Verifica se o usuário atual pode gerenciar geofences (apenas responsáveis)
+     */
+    fun canManageGeofences(): Boolean {
+        return _isResponsible.value
+    }
+
+    /**
+     * Filtra geofences que estão ativas para o usuário atual
+     */
+    fun getActiveGeofencesForUser(): List<Geofence> {
+        return geofences.value.filter { geofence ->
+            geofence.isActive &&
+            (
+                // Responsáveis veem todas as geofences que criaram
+                (isResponsible.value && geofence.createdByUserId == currentUserId) ||
+                // Membros veem apenas geofences onde são o targetUserId
+                (!isResponsible.value && geofence.targetUserId == currentUserId)
             )
         }
     }

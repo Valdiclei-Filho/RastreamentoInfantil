@@ -30,9 +30,9 @@ import com.example.rastreamentoinfantil.ui.theme.RastreamentoInfantilTheme
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 import com.example.rastreamentoinfantil.viewmodel.MainViewModelFactory
 import com.google.firebase.FirebaseApp
-import androidx.lifecycle.lifecycleScope // Para launchWhenStarted
+import androidx.lifecycle.lifecycleScope
 import com.example.rastreamentoinfantil.helper.NotificationHelper
-import kotlinx.coroutines.flow.collectLatest // Para coletar o SharedFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.example.rastreamentoinfantil.helper.RouteHelper
 import kotlinx.coroutines.Dispatchers
@@ -54,7 +54,10 @@ class MainActivity : ComponentActivity(){
             val allLocationPermissionsGranted = permissions.entries.all { it.value }
             if (allLocationPermissionsGranted) {
                 Log.d("MainActivity", "Todas as permissões de localização concedidas")
-                mainViewModel.startLocationMonitoring()
+                // Iniciar monitoramento em background
+                lifecycleScope.launch(Dispatchers.IO) {
+                    mainViewModel.startLocationMonitoring()
+                }
             } else {
                 Log.e("MainActivity", "Permissões de localização negadas")
                 Toast.makeText(this, "Permissões de localização são necessárias", Toast.LENGTH_LONG).show()
@@ -66,11 +69,9 @@ class MainActivity : ComponentActivity(){
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
             if (isGranted) {
                 println("Permissão de notificação CONCEDIDA.")
-                // Ação opcional se concedida aqui, como mostrar um Toast
                 Toast.makeText(this, "Permissão de notificação concedida", Toast.LENGTH_SHORT).show()
             } else {
                 println("Permissão de notificação NEGADA.")
-                // Ação opcional se negada, como mostrar um Toast ou diálogo
                 Toast.makeText(this, "Permissão de notificação negada. Funcionalidades podem ser limitadas.", Toast.LENGTH_LONG).show()
             }
         }
@@ -79,13 +80,13 @@ class MainActivity : ComponentActivity(){
         super.onCreate(savedInstanceState)
         Log.d("MainActivity", "onCreate iniciado")
 
-        // Inicializa o Firebase primeiro
+        // Inicializa o Firebase primeiro (operação síncrona rápida)
         FirebaseApp.initializeApp(this)
 
-        // Cria os canais de notificação
+        // Cria os canais de notificação (operação síncrona rápida)
         createNotificationChannels()
 
-        // Inicializa os serviços e ViewModel
+        // Inicializa os serviços e ViewModel (operação síncrona rápida)
         val firebaseRepository = FirebaseRepository()
         val locationService = LocationService(this)
         val geocodingService = GeocodingService(this)
@@ -95,6 +96,7 @@ class MainActivity : ComponentActivity(){
 
         mainViewModel = ViewModelProvider(this, factory).get(MainViewModel::class.java)
 
+        // Renderiza a UI imediatamente
         setContent {
             RastreamentoInfantilTheme {
                 Surface(
@@ -106,9 +108,11 @@ class MainActivity : ComponentActivity(){
             }
         }
 
-        // Inicialize monitoramento e observadores em background
+        // Inicializa operações pesadas em background
         lifecycleScope.launch(Dispatchers.IO) {
-            Log.d("MainActivity", "Iniciando observadores de eventos em background")
+            Log.d("MainActivity", "Iniciando operações em background")
+            
+            // Inicializa observadores de eventos
             launch {
                 mainViewModel.showExitNotificationEvent.collectLatest { geofenceId ->
                     NotificationHelper.showGeofenceExitNotification(this@MainActivity, geofenceId)
@@ -119,15 +123,20 @@ class MainActivity : ComponentActivity(){
                     NotificationHelper.showRouteExitNotification(this@MainActivity, routeName)
                 }
             }
-            // Verifica permissões antes de iniciar o monitoramento
+            
+            // Verifica permissões e inicia monitoramento
             if (hasLocationPermissions()) {
                 Log.d("MainActivity", "Permissões OK, iniciando monitoramento de localização")
                 mainViewModel.startLocationMonitoring()
             } else {
                 Log.d("MainActivity", "Solicitando permissões de localização")
-                requestLocationPermissions()
+                // Volta para a thread principal para solicitar permissões
+                runOnUiThread {
+                    requestLocationPermissions()
+                }
             }
         }
+        
         Log.d("MainActivity", "onCreate finalizado")
     }
 

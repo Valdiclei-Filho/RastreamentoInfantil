@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -27,9 +29,11 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.rastreamentoinfantil.model.LocationRecord
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
+import com.example.rastreamentoinfantil.ui.theme.rememberResponsiveDimensions
 
 @Composable
 fun MainScreen(mainViewModel: MainViewModel, navController: NavController) {
+    val dimensions = rememberResponsiveDimensions()
     LaunchedEffect(Unit) {
         mainViewModel.syncCurrentUser()
     }
@@ -41,37 +45,46 @@ fun MainScreen(mainViewModel: MainViewModel, navController: NavController) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(dimensions.paddingMediumDp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (isLoading) {
             CircularProgressIndicator()
         } else {
-            LazyColumn {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = if (dimensions.isTablet) 500.dp else dimensions.screenWidth.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(dimensions.paddingMediumDp),
+                verticalArrangement = Arrangement.spacedBy(dimensions.paddingSmallDp)
+            ) {
                 items(locationRecords) { record ->
                     val color = if (record.isOutOfRoute == true) Color.Red else Color.Green
                     Column(
                         modifier = Modifier
-                            .padding(8.dp)
+                            .padding(dimensions.paddingSmallDp)
                     ) {
                         Text(
                             text = "Localização: ${record.address}",
                             color = color
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
                         Text(text = "Data/Hora: ${record.dateTime}")
                     }
                 }
             }
-
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensions.paddingLargeDp))
 
         Button(onClick = {
             navController.navigate("mapscreen")
-        }) {
+        }, modifier = Modifier
+            .fillMaxWidth()
+            .height(dimensions.buttonHeightDp)
+            .widthIn(max = if (dimensions.isTablet) 400.dp else dimensions.screenWidth.dp)
+        ) {
             Text("Abrir Mapa")
         }
 

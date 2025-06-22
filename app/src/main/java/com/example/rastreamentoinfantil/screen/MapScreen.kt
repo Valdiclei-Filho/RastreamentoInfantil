@@ -6,26 +6,20 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.maps.android.compose.*
 import com.google.firebase.auth.FirebaseAuth
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.google.maps.android.compose.*
-// import androidx.compose.runtime.getValue // Já importado por androidx.compose.runtime.*
-// import androidx.compose.runtime.setValue // Já importado por androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color // androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel // Mantenha, mas vamos discutir o padrão
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
@@ -36,13 +30,10 @@ import com.example.rastreamentoinfantil.model.Coordinate
 import com.example.rastreamentoinfantil.model.Geofence
 import com.example.rastreamentoinfantil.screen.AppDestinations.ROUTE_LIST_SCREEN
 import com.example.rastreamentoinfantil.screen.AppDestinations.FAMILY_SCREEN
-// import com.google.android.libraries.mapsplatform.transportation.consumer.model.Route // REMOVA ESTA LINHA CONFLITANTE
-import com.example.rastreamentoinfantil.model.Route // CERTIFIQUE-SE QUE ESTA É A CORRETA
+import com.example.rastreamentoinfantil.model.Route
 import com.example.rastreamentoinfantil.screen.AppDestinations.LOGIN_SCREEN
 import com.google.maps.android.PolyUtil
 import java.util.UUID
-
-// Imports para PatternItem, Dash, Gap
 import com.google.android.gms.maps.model.Dash
 import com.google.android.gms.maps.model.Gap
 import com.google.android.gms.maps.model.PatternItem
@@ -52,13 +43,19 @@ import com.example.rastreamentoinfantil.viewmodel.LoginViewModel
 import com.example.rastreamentoinfantil.viewmodel.LoginViewModelFactory
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
 import com.example.rastreamentoinfantil.MainActivity
+import com.example.rastreamentoinfantil.ui.theme.rememberResponsiveDimensions
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
     modifier: Modifier = Modifier,
     mainViewModel: MainViewModel,
     navController: NavHostController
 ) {
+    val dimensions = rememberResponsiveDimensions()
+    val scope = rememberCoroutineScope()
+    
     // Sincronizar usuário logado ao abrir a tela
     LaunchedEffect(Unit) {
         mainViewModel.syncCurrentUser()
@@ -76,10 +73,17 @@ fun MapScreen(
     val routes by mainViewModel.routes.collectAsState()
     val isLoadingRoutes by mainViewModel.isLoadingRoutes.collectAsState()
     val isResponsible by mainViewModel.isResponsible.collectAsStateWithLifecycle()
+    
+    // Observar geofences ativas
+    val geofences by mainViewModel.geofences.collectAsStateWithLifecycle()
+    val activeGeofences = remember(geofences) {
+        mainViewModel.getActiveGeofencesForUser()
+    }
 
     var isEditingGeofence by remember { mutableStateOf(false) }
     var newGeofenceCenter by remember { mutableStateOf<LatLng?>(null) }
     var newGeofenceRadius by remember { mutableStateOf(100f) }
+    var showBottomSheet by remember { mutableStateOf(false) }
 
     val currentUserId = remember { FirebaseAuth.getInstance().currentUser?.uid }
 
@@ -99,8 +103,6 @@ fun MapScreen(
     LaunchedEffect(currentLocation) {
         currentLocation?.let { location ->
             val userLatLng = LatLng(location.latitude, location.longitude)
-            // Verifica se o usuário está movendo o mapa manualmente
-            // e se não estamos no modo de edição da geofence.
             if (!isEditingGeofence && cameraPositionState.cameraMoveStartedReason != CameraMoveStartedReason.GESTURE) {
                 cameraPositionState.animate(
                     update = CameraUpdateFactory.newLatLngZoom(userLatLng, cameraPositionState.position.zoom),
@@ -123,7 +125,6 @@ fun MapScreen(
     }
 
     // Função auxiliar para parsear a cor da rota de forma segura
-    // Usamos remember para que o cálculo só ocorra se route.routeColor mudar
     @Composable
     fun rememberParsedRouteColor(routeColorString: String?, defaultColorValue: String = "#3F51B5"): Color {
         return remember(routeColorString) {
@@ -131,50 +132,101 @@ fun MapScreen(
                 Color(android.graphics.Color.parseColor(routeColorString ?: defaultColorValue))
             } catch (e: Exception) {
                 Log.w("MapScreen", "Cor inválida para rota: $routeColorString", e)
-                Color(android.graphics.Color.parseColor(defaultColorValue)) // Fallback
+                Color(android.graphics.Color.parseColor(defaultColorValue))
             }
         }
     }
 
-
-    Box(modifier = modifier.fillMaxSize()) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Mapa") }
+            )
+        },
+        bottomBar = {
+            BottomAppBar(
+                actions = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Botão de geofence
+                        IconButton(
+                            onClick = { navController.navigate(AppDestinations.GEOFENCE_LIST_SCREEN) }
+                        ) {
+                            Icon(Icons.Default.LocationOn, contentDescription = "Áreas Seguras")
+                        }
+                        
+                        // Botão de rotas
+                        IconButton(
+                            onClick = { navController.navigate(ROUTE_LIST_SCREEN) }
+                        ) {
+                            Icon(Icons.Default.List, contentDescription = "Rotas")
+                        }
+                        
+                        // Botão de família
+                        IconButton(
+                            onClick = { navController.navigate(FAMILY_SCREEN) }
+                        ) {
+                            Icon(Icons.Default.Person, contentDescription = "Família")
+                        }
+                        
+                        // Botão de logout
+                        IconButton(
+                            onClick = {
+                                mainViewModel.resetAuthenticationState()
+                                loginViewModel.signOut()
+                                navController.navigate(LOGIN_SCREEN) {
+                                    popUpTo(0) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.ExitToApp, contentDescription = "Sair")
+                        }
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
             properties = MapProperties(isMyLocationEnabled = false),
-            uiSettings = MapUiSettings(zoomControlsEnabled = true, myLocationButtonEnabled = true),
+                uiSettings = MapUiSettings(
+                    zoomControlsEnabled = true,
+                    myLocationButtonEnabled = false, // Removido pois agora está na BottomBar
+                    mapToolbarEnabled = false
+                ),
             onMapClick = { latLng ->
                 if (isEditingGeofence) {
                     newGeofenceCenter = latLng
                 }
             }
-        ) { // Início do ComposableMapScope
-
-            if (isLoadingRoutes && routes.isEmpty()) { // Mostra apenas se estiver carregando E não houver rotas
-                // Não é possível colocar CircularProgressIndicator diretamente aqui
-                // porque este é um ComposableMapScope, não um escopo de layout normal.
-                // Você pode colocar um Marker especial ou nada.
-                // O CircularProgressIndicator foi movido para a Column de controles.
-            }
-
-            activeRoutesForToday.forEach { route ->
+            ) {
+                // Renderizar rotas
+                activeRoutesForToday.forEach { route ->
                 val routeColor = rememberParsedRouteColor(route.routeColor, "#3F51B5")
 
-                // 1. Tente decodificar a polyline AQUI, fora de qualquer chamada Composable direta
                 val decodedPath: List<LatLng>? = if (!route.encodedPolyline.isNullOrBlank()) {
                     try {
                         val path = PolyUtil.decode(route.encodedPolyline)
-                        if (path.size >= 2) path else null // Retorna null se não tiver pontos suficientes
+                            if (path.size >= 2) path else null
                     } catch (e: Exception) {
                         Log.e("MapScreen", "Erro ao decodificar polyline para rota '${route.name}'", e)
-                        null // Retorna null em caso de exceção
+                            null
                     }
                 } else {
                     Log.w("MapScreen", "Rota '${route.name}' não tem encodedPolyline.")
                     null
                 }
 
-                // 2. Agora, use o resultado (decodedPath) para decidir o que compor
                 if (decodedPath != null) {
                     Polyline(
                         points = decodedPath,
@@ -190,13 +242,10 @@ fun MapScreen(
                         }
                     )
                 } else {
-                    // Se decodedPath for null (seja por erro, sem polyline, ou poucos pontos)
-                    // desenhe a linha de fallback.
-                    Log.w("MapScreen", "Desenhando fallback para rota '${route.name}'.")
                     drawFallbackRouteLine(route, routeColor.copy(alpha = 0.7f))
                 }
 
-                // Marcadores para origem, destino e waypoints (inalterado)
+                    // Marcadores para origem, destino e waypoints
                 route.origin?.let { point ->
                     Marker(
                         state = MarkerState(position = LatLng(point.latitude, point.longitude)),
@@ -220,6 +269,7 @@ fun MapScreen(
                 }
             }
 
+                // Marcador da localização atual
             currentLocation?.let { location ->
                 val userLatLng = LatLng(location.latitude, location.longitude)
                 Marker(
@@ -230,29 +280,30 @@ fun MapScreen(
                 )
             }
 
-            currentGeofence?.let { fence ->
-                if (!isEditingGeofence || newGeofenceCenter == null) {
-                    val centerLatLng = LatLng(fence.coordinates.latitude, fence.coordinates.longitude)
-                    val (strokeColor, fillColor) = when (isInsideGeofence) {
-                        true -> Color.Green.copy(alpha = 0.8f) to Color.Green.copy(alpha = 0.3f)
-                        false -> Color.Red.copy(alpha = 0.8f) to Color.Red.copy(alpha = 0.3f)
-                        null -> Color.Gray.copy(alpha = 0.7f) to Color.Gray.copy(alpha = 0.2f)
+                // Geofences ativas
+                activeGeofences.forEach { geofence ->
+                    val centerLatLng = LatLng(geofence.coordinates.latitude, geofence.coordinates.longitude)
+                    val strokeColor = when {
+                        geofence.isActive -> Color(android.graphics.Color.parseColor(geofence.color ?: "#3F51B5"))
+                        else -> Color.Gray.copy(alpha = 0.7f)
                     }
+                    val fillColor = strokeColor.copy(alpha = 0.2f)
+                    
                     Circle(
                         center = centerLatLng,
-                        radius = fence.radius.toDouble(),
+                        radius = geofence.radius.toDouble(),
                         strokeColor = strokeColor,
-                        strokeWidth = 5f,
+                        strokeWidth = 3f,
                         fillColor = fillColor
                     )
                     Marker(
                         state = MarkerState(position = centerLatLng),
-                        title = fence.name ?: "Área Segura",
-                        snippet = "Raio: ${fence.radius.toInt()}m" // Usar toInt() para melhor formatação
+                        title = geofence.name,
+                        snippet = "Raio: ${geofence.radius.toInt()}m - ${if(geofence.isActive) "Ativa" else "Inativa"}"
                     )
                 }
-            }
 
+                // Geofence em edição
             if (isEditingGeofence && newGeofenceCenter != null) {
                 Circle(
                     center = newGeofenceCenter!!,
@@ -263,116 +314,87 @@ fun MapScreen(
                 )
                 Marker(
                     state = MarkerState(position = newGeofenceCenter!!),
-                    title = "Novo Centro Geofence", // Título mais descritivo
+                        title = "Novo Centro Geofence",
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_MAGENTA)
                 )
+                }
             }
-        } // Fim do ComposableMapScope
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(16.dp)
-        ) {
+            // Loading indicator
             if (isLoadingRoutes && routes.isEmpty()) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(dimensions.paddingMediumDp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
             }
 
+            // Controles de edição de geofence (apenas quando estiver editando)
             if (isEditingGeofence) {
-                Text("Raio da Geofence: ${newGeofenceRadius.toInt()} m", color = Color.Black) // Use Color.Black ou outra cor de MaterialTheme
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(dimensions.paddingMediumDp)
+                        .fillMaxWidth()
+                        .widthIn(max = if (dimensions.isTablet) 400.dp else dimensions.screenWidth.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(dimensions.paddingMediumDp)
+                    ) {
+                        Text(
+                            "Raio da Geofence: ${newGeofenceRadius.toInt()} m",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                 Slider(
                     value = newGeofenceRadius,
                     onValueChange = { newGeofenceRadius = it },
                     valueRange = 50f..1000f,
-                    steps = ((1000f - 50f) / 50f).toInt() - 1 // Pulos de 50m
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = {
-                    newGeofenceCenter?.let { center ->
-                        val geofenceToSave = Geofence(
-                            id = currentGeofence?.id ?: UUID.randomUUID().toString(),
-                            name = currentGeofence?.name ?: "Nova Área Segura",
-                            radius = newGeofenceRadius,
-                            coordinates = Coordinate(center.latitude, center.longitude)
+                            steps = ((1000f - 50f) / 50f).toInt() - 1
                         )
-                        mainViewModel.updateUserGeofence(geofenceToSave)
-                    }
-                    isEditingGeofence = false
-                }) {
-                    Text("Salvar Geofence")
-                }
-                Button(onClick = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(dimensions.paddingSmallDp)
+                        ) {
+                            Button(
+                                onClick = {
                     newGeofenceCenter = currentGeofence?.let { LatLng(it.coordinates.latitude, it.coordinates.longitude) }
                     newGeofenceRadius = currentGeofence?.radius ?: 100f
                     isEditingGeofence = false
-                }) {
-                    Text("Cancelar Edição") // Texto mais claro
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Cancelar")
                 }
                 if (currentGeofence != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = {
+                                Button(
+                                    onClick = {
                         mainViewModel.updateUserGeofence(null)
                         isEditingGeofence = false
                         newGeofenceCenter = null
-                    }) {
-                        Text("Remover Geofence Atual")
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Text("Remover")
+                                }
+                            }
+                        }
                     }
                 }
-
-            } else {
-                Button(onClick = {
-                    newGeofenceCenter = currentGeofence?.let { LatLng(it.coordinates.latitude, it.coordinates.longitude) }
-                        ?: currentLocation?.let { LatLng(it.latitude, it.longitude) }
-                    newGeofenceRadius = currentGeofence?.radius ?: 100f
-                    isEditingGeofence = true
-                }) {
-                    Text(if (currentGeofence == null) "Definir Nova Geofence" else "Editar Geofence")
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp)) // Adicionado Spacer antes do botão de Gerenciar Rotas
-            if (isResponsible) {
-                Button(onClick = { navController.navigate(ROUTE_LIST_SCREEN) }) {
-                    Text("Gerenciar Rotas")
-                }
-            } else {
-                Button(onClick = { navController.navigate(ROUTE_LIST_SCREEN) }) {
-                    Text("Ver Rotas")
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp)) // Adicionado Spacer antes do botão de Gerenciar Familias
-            Button(onClick = { navController.navigate(FAMILY_SCREEN) }) {
-                Text("Gerenciar Famílias")
-            }
-
-            Button(
-                onClick = {
-                    // Limpar todos os dados do MainViewModel
-                    mainViewModel.resetAuthenticationState()
-                    
-                    // Fazer logout usando o LoginViewModel
-                    loginViewModel.signOut()
-                    
-                    // Navegar para a tela de login
-                    navController.navigate(LOGIN_SCREEN) {
-                        popUpTo(0) { inclusive = true }
-                        launchSingleTop = true
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-            ) {
-                Text("Sair", color = Color.White)
             }
         }
     }
 }
 
-// A função drawFallbackRouteLine está correta em termos de escopo (ComposableMapScope)
-// e acesso aos campos de 'route' assuming 'route' is your model.
+// Função auxiliar para desenhar rotas de fallback
 @Composable
 @GoogleMapComposable
 private fun drawFallbackRouteLine(
-    route: Route, // Seja explícito com o tipo Route aqui
+    route: Route,
     color: Color
 ) {
     val fallbackPoints = mutableListOf<LatLng>()
@@ -384,10 +406,10 @@ private fun drawFallbackRouteLine(
 
     if (fallbackPoints.size >= 2) {
         Polyline(
-            points = fallbackPoints, // MutableList é aceitável aqui, pois List é esperado
+            points = fallbackPoints,
             color = color.copy(alpha = 0.6f),
             width = 6f,
-            pattern = listOf<PatternItem>(Dash(20f), Gap(10f)) // Tipos explícitos para clareza
+            pattern = listOf<PatternItem>(Dash(20f), Gap(10f))
         )
     }
 }

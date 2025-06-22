@@ -161,7 +161,10 @@ class RouteHelper {
             
             if (distance < minDistance) {
                 minDistance = distance.toFloat()
-                lastKnownRoutePoint = segmentStart as RoutePoint?
+                lastKnownRoutePoint = RoutePoint(
+                    latitude = segmentStart.latitude,
+                    longitude = segmentStart.longitude
+                )
             }
         }
 

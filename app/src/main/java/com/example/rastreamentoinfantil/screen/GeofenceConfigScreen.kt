@@ -18,13 +18,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rastreamentoinfantil.model.Coordinate
 import com.example.rastreamentoinfantil.model.Geofence
-import com.example.rastreamentoinfantil.viewmodel.GeofenceViewModel // Criaremos este ViewModel a seguir
+import com.example.rastreamentoinfantil.viewmodel.GeofenceViewModel
+import com.example.rastreamentoinfantil.ui.theme.rememberResponsiveDimensions
 
 @Composable
 fun GeofenceConfigScreen(
-    viewModel: GeofenceViewModel = viewModel(), // Usar um ViewModel dedicado
+    viewModel: GeofenceViewModel = viewModel(),
     onSaveSuccess: () -> Unit
 ) {
+    val dimensions = rememberResponsiveDimensions()
     var latitudeInput by remember { mutableStateOf("") }
     var longitudeInput by remember { mutableStateOf("") }
     var radiusInput by remember { mutableStateOf("") }
@@ -35,19 +37,19 @@ fun GeofenceConfigScreen(
     LaunchedEffect(saveSuccess) {
         if (saveSuccess) {
             onSaveSuccess()
-            viewModel.resetSaveSuccess() // Reiniciar o estado
+            viewModel.resetSaveSuccess()
         }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(dimensions.paddingMediumDp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Text("Configurar Geofence", style = MaterialTheme.typography.bodyLarge)
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
 
         OutlinedTextField(
             value = latitudeInput,
@@ -56,7 +58,7 @@ fun GeofenceConfigScreen(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
 
         OutlinedTextField(
             value = longitudeInput,
@@ -65,7 +67,7 @@ fun GeofenceConfigScreen(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
 
         OutlinedTextField(
             value = radiusInput,
@@ -74,7 +76,7 @@ fun GeofenceConfigScreen(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
 
         Button(
             onClick = {
@@ -87,22 +89,21 @@ fun GeofenceConfigScreen(
                     val geofence = Geofence(coordinates = coordinate, radius = radius)
                     viewModel.saveGeofence(geofence)
                 } else {
-                    // Mostrar erro para o usuário
                     viewModel.setError("Por favor, insira latitude, longitude e raio válidos.")
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading // Desabilitar botão enquanto carrega
+            enabled = !isLoading
         ) {
             Text("Salvar Geofence")
         }
 
         if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            CircularProgressIndicator(modifier = Modifier.padding(top = dimensions.paddingMediumDp))
         }
 
         error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 16.dp))
+            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = dimensions.paddingMediumDp))
         }
     }
 }

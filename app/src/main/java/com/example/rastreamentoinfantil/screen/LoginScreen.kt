@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -21,15 +24,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.example.rastreamentoinfantil.viewmodel.LoginViewModel
+import com.example.rastreamentoinfantil.ui.theme.rememberResponsiveDimensions
 
 @Composable
 fun LoginScreen(
     loginViewModel: LoginViewModel,
     navController: NavHostController
 ) {
+    val dimensions = rememberResponsiveDimensions()
+    
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val user by loginViewModel.user.observeAsState()
@@ -46,69 +54,159 @@ fun LoginScreen(
         showDialog = !error.isNullOrEmpty()
     }
 
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+                .padding(dimensions.paddingMediumDp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+            // Container responsivo para o conteúdo
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = if (dimensions.isTablet) 400.dp else dimensions.screenWidth.dp)
+                    .padding(dimensions.paddingMediumDp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(dimensions.paddingMediumDp)
+            ) {
+                // Título
+                Text(
+                    text = "Rastreamento Infantil",
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontSize = dimensions.textExtraLargeSp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    ),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                
+                Spacer(modifier = Modifier.height(dimensions.paddingLargeDp))
+                
+                // Subtítulo
+                Text(
+                    text = "Faça login para continuar",
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontSize = dimensions.textMediumSp,
+                        textAlign = TextAlign.Center
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Spacer(modifier = Modifier.height(dimensions.paddingLargeDp))
+
         if (isLoading) {
-            CircularProgressIndicator()
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(dimensions.paddingMediumDp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
         } else {
+                    // Campo de email
             TextField(
                 value = email,
                 onValueChange = { email = it },
-                label = { Text("Email") },
-                modifier = Modifier.fillMaxWidth()
-            )
+                        label = { 
+                            Text(
+                                "Email",
+                                fontSize = dimensions.textMediumSp
+                            ) 
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(dimensions.textFieldHeightDp),
+                        singleLine = true
+                    )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
+                    // Campo de senha
             TextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Senha") },
-                modifier = Modifier.fillMaxWidth()
+                        label = { 
+                            Text(
+                                "Senha",
+                                fontSize = dimensions.textMediumSp
+                            ) 
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(dimensions.textFieldHeightDp),
+                        singleLine = true
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
 
+                    // Botão de login
             Button(
                 onClick = {
                     loginViewModel.login(email, password)
                 },
-                modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(dimensions.buttonHeightDp)
             ) {
-                Text("Entrar")
+                        Text(
+                            "Entrar",
+                            fontSize = dimensions.textMediumSp,
+                            fontWeight = FontWeight.Medium
+                        )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
 
+                    // Botão de cadastro
             Button(
                 onClick = {
                     navController.navigate("register")
                 },
-                modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(dimensions.buttonHeightDp)
             ) {
-                Text("Cadastrar")
+                        Text(
+                            "Cadastrar",
+                            fontSize = dimensions.textMediumSp,
+                            fontWeight = FontWeight.Medium
+                        )
+            }
+        }
             }
         }
 
+        // Diálogo de erro
         if (showDialog) {
             AlertDialog(
                 onDismissRequest = {
                     showDialog = false
-                    loginViewModel.clearError()  // Limpa o erro no ViewModel ao fechar o diálogo
+                    loginViewModel.clearError()
                 },
-                title = { Text("Erro") },
-                text = { Text(error!!) },
+                title = { 
+                    Text(
+                        "Erro",
+                        fontSize = dimensions.textLargeSp,
+                        fontWeight = FontWeight.Bold
+                    ) 
+                },
+                text = { 
+                    Text(
+                        error!!,
+                        fontSize = dimensions.textMediumSp
+                    ) 
+                },
                 confirmButton = {
-                    Button(onClick = {
+                    Button(
+                        onClick = {
                         showDialog = false
-                        loginViewModel.clearError()  // Limpa o erro no ViewModel ao clicar em OK
-                    }) {
-                        Text("OK")
+                            loginViewModel.clearError()
+                        }
+                    ) {
+                        Text(
+                            "OK",
+                            fontSize = dimensions.textMediumSp
+                        )
                     }
                 }
             )

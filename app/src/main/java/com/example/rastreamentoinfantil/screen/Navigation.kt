@@ -42,6 +42,11 @@ object AppDestinations {
     const val ROUTE_EDIT_SCREEN_ARG_ID = "routeId"
     const val ROUTE_EDIT_SCREEN = "$ROUTE_EDIT_SCREEN_BASE/{$ROUTE_EDIT_SCREEN_ARG_ID}"
     const val FAMILY_SCREEN = "family"
+    const val GEOFENCE_LIST_SCREEN = "geofenceList"
+    const val GEOFENCE_CREATE_SCREEN = "geofenceCreate"
+    const val GEOFENCE_EDIT_SCREEN_BASE = "geofenceEdit"
+    const val GEOFENCE_EDIT_SCREEN_ARG_ID = "geofenceId"
+    const val GEOFENCE_EDIT_SCREEN = "$GEOFENCE_EDIT_SCREEN_BASE/{$GEOFENCE_EDIT_SCREEN_ARG_ID}"
 }
 
 @Composable
@@ -58,17 +63,55 @@ fun Navigation(
     )[LoginViewModel::class.java]
 
     // Usar estado global da aplicação diretamente
-    var isLoggedIn by remember { mutableStateOf(RastreamentoInfantilApp.isUserLoggedIn) }
-    var isCheckingAuth by remember { mutableStateOf(!RastreamentoInfantilApp.isAuthChecked) }
+    var isLoggedIn by remember { 
+        val initialState = RastreamentoInfantilApp.isUserLoggedIn
+        Log.d("Navigation", "Estado inicial - isLoggedIn: $initialState")
+        mutableStateOf(initialState) 
+    }
+    var isCheckingAuth by remember { 
+        val initialState = !RastreamentoInfantilApp.isAuthChecked
+        Log.d("Navigation", "Estado inicial - isCheckingAuth: $initialState")
+        mutableStateOf(initialState) 
+    }
     var currentUser by remember { mutableStateOf(FirebaseAuth.getInstance().currentUser) }
     var currentUserId by remember { mutableStateOf(currentUser?.uid ?: "") }
     var currentUserEmail by remember { mutableStateOf(currentUser?.email ?: "") }
 
+    // Determinar a tela inicial baseada no estado de autenticação
+    val startDestination = remember(isLoggedIn, isCheckingAuth) {
+        when {
+            isCheckingAuth -> AppDestinations.LOGIN_SCREEN // Mostrar loading na tela de login
+            isLoggedIn && currentUser != null -> AppDestinations.MAP_SCREEN
+            else -> AppDestinations.LOGIN_SCREEN
+        }
+    }
+
     // Observar mudanças no estado global da aplicação
     LaunchedEffect(Unit) {
+        Log.d("Navigation", "=== NAVIGATION INICIADA ===")
+        Log.d("Navigation", "Estado atual da aplicação:")
+        Log.d("Navigation", "- isAuthChecked: ${RastreamentoInfantilApp.isAuthChecked}")
+        Log.d("Navigation", "- isUserLoggedIn: ${RastreamentoInfantilApp.isUserLoggedIn}")
+        Log.d("Navigation", "- currentUserId: ${RastreamentoInfantilApp.currentUserId}")
+        
+        // Atualizar estado inicial
+        isLoggedIn = RastreamentoInfantilApp.isUserLoggedIn
+        isCheckingAuth = !RastreamentoInfantilApp.isAuthChecked
+        currentUser = FirebaseAuth.getInstance().currentUser
+        currentUserId = currentUser?.uid ?: ""
+        currentUserEmail = currentUser?.email ?: ""
+        
+        Log.d("Navigation", "Estado inicial atualizado: isLoggedIn=$isLoggedIn, isCheckingAuth=$isCheckingAuth")
+        
         RastreamentoInfantilApp.addAuthStateCallback {
-            isLoggedIn = RastreamentoInfantilApp.isUserLoggedIn
-            isCheckingAuth = !RastreamentoInfantilApp.isAuthChecked
+            val newIsLoggedIn = RastreamentoInfantilApp.isUserLoggedIn
+            val newIsCheckingAuth = !RastreamentoInfantilApp.isAuthChecked
+            
+            Log.d("Navigation", "=== CALLBACK EXECUTADO ===")
+            Log.d("Navigation", "Novo estado: isLoggedIn=$newIsLoggedIn, isCheckingAuth=$newIsCheckingAuth")
+            
+            isLoggedIn = newIsLoggedIn
+            isCheckingAuth = newIsCheckingAuth
             currentUser = FirebaseAuth.getInstance().currentUser
             currentUserId = currentUser?.uid ?: ""
             currentUserEmail = currentUser?.email ?: ""
@@ -79,23 +122,32 @@ fun Navigation(
 
     // Observar mudanças no estado de login
     LaunchedEffect(isLoggedIn, isCheckingAuth) {
+        Log.d("Navigation", "=== LAUNCHEDEFFECT EXECUTADO ===")
         Log.d("Navigation", "Estado de login mudou: isLoggedIn=$isLoggedIn, isCheckingAuth=$isCheckingAuth, currentUser=$currentUser")
         
         // Só navegar após a verificação inicial de autenticação estar completa
         if (!isCheckingAuth) {
+            Log.d("Navigation", "Verificação de autenticação concluída, decidindo navegação...")
+            
             if (!isLoggedIn && currentUser == null) {
+                Log.d("Navigation", "Usuário não está logado, navegando para LOGIN_SCREEN")
                 // Usuário não está logado, navegar para login
                 navController.navigate(AppDestinations.LOGIN_SCREEN) {
                     popUpTo(0) { inclusive = true }
                     launchSingleTop = true
                 }
             } else if (isLoggedIn && currentUser != null) {
+                Log.d("Navigation", "Usuário está logado, navegando para MAP_SCREEN")
                 // Usuário está logado, navegar para mapa
                 navController.navigate(AppDestinations.MAP_SCREEN) {
                     popUpTo(0) { inclusive = true }
                     launchSingleTop = true
                 }
+            } else {
+                Log.d("Navigation", "Estado inconsistente: isLoggedIn=$isLoggedIn, currentUser=$currentUser")
             }
+    } else {
+            Log.d("Navigation", "Ainda verificando autenticação...")
         }
     }
 
@@ -116,11 +168,15 @@ fun Navigation(
         }
     )[FamilyViewModel::class.java]
 
-    NavHost(navController = navController, startDestination = AppDestinations.LOGIN_SCREEN) {
+    Log.d("Navigation", "Iniciando NavHost com startDestination: $startDestination")
+
+    NavHost(navController = navController, startDestination = startDestination) {
 
         composable(AppDestinations.LOGIN_SCREEN) {
+            Log.d("Navigation", "Renderizando LOGIN_SCREEN - isCheckingAuth: $isCheckingAuth")
             if (isCheckingAuth) {
                 // Mostrar loading enquanto verifica autenticação
+                Log.d("Navigation", "Mostrando loading...")
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = androidx.compose.ui.Alignment.Center
@@ -131,8 +187,9 @@ fun Navigation(
                     )
                 }
             } else {
-                println(">>>>>>>>> login screen<<<< ")
-                LoginScreen(loginViewModel, navController)
+                Log.d("Navigation", "Mostrando tela de login...")
+            println(">>>>>>>>> login screen<<<< ")
+            LoginScreen(loginViewModel, navController)
             }
         }
         
@@ -175,6 +232,25 @@ fun Navigation(
 
         composable(AppDestinations.FAMILY_SCREEN) {
             FamilyScreen(navController = navController)
+        }
+
+        // Novas rotas para geofence
+        composable(AppDestinations.GEOFENCE_LIST_SCREEN) {
+            GeofenceListScreen(navController = navController, mainViewModel = mainViewModel)
+        }
+
+        composable(AppDestinations.GEOFENCE_CREATE_SCREEN) {
+            GeofenceEditScreen(navController = navController, mainViewModel = mainViewModel, geofenceId = null)
+        }
+
+        composable(
+            route = AppDestinations.GEOFENCE_EDIT_SCREEN,
+            arguments = listOf(navArgument(AppDestinations.GEOFENCE_EDIT_SCREEN_ARG_ID) {
+                type = NavType.StringType
+            })
+        ) { backStackEntry ->
+            val geofenceId = backStackEntry.arguments?.getString(AppDestinations.GEOFENCE_EDIT_SCREEN_ARG_ID)
+            GeofenceEditScreen(navController = navController, mainViewModel = mainViewModel, geofenceId = geofenceId)
         }
     }
 }
