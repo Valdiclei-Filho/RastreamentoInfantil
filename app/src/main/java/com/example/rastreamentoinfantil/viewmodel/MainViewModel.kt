@@ -42,6 +42,9 @@ import java.util.UUID
 import com.example.rastreamentoinfantil.helper.RouteHelper
 import com.google.firebase.auth.FirebaseAuth
 import com.example.rastreamentoinfantil.model.User
+import com.example.rastreamentoinfantil.model.NotificationHistoryEntry
+import com.example.rastreamentoinfantil.model.FamilyRelationship
+import java.util.Calendar
 
 class MainViewModel(
     application: Application,
@@ -150,6 +153,17 @@ class MainViewModel(
     private val _selectedGeofence = MutableStateFlow<Geofence?>(null)
     val selectedGeofence: StateFlow<Geofence?> = _selectedGeofence.asStateFlow()
 
+    // Novos campos para controle de status de geofences e rotas
+    private val _geofenceStatusMap = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val geofenceStatusMap: StateFlow<Map<String, Boolean>> = _geofenceStatusMap.asStateFlow()
+
+    private val _routeStatusMap = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val routeStatusMap: StateFlow<Map<String, Boolean>> = _routeStatusMap.asStateFlow()
+
+    // Cache para evitar notificações duplicadas
+    private val lastNotificationTime = mutableMapOf<String, Long>()
+    private val NOTIFICATION_COOLDOWN = 30000L // 30 segundos entre notificações do mesmo tipo
+
     data class RouteDeviation(
         val routeId: String,
         val routeName: String,
@@ -163,6 +177,18 @@ class MainViewModel(
         
         // Não inicia monitoramento automaticamente no init
         // Será iniciado explicitamente pela MainActivity quando necessário
+    }
+
+    /**
+     * Inicializa o currentUserId quando o usuário faz login
+     */
+    fun initializeUser() {
+        val currentUser = firebaseRepository.getCurrentUser()
+        if (currentUser != null) {
+            currentUserId = currentUser.uid
+            Log.d(TAG1, "Usuário inicializado: $currentUserId")
+            loadUserIdAndGeofence()
+        }
     }
 
     fun startLocationMonitoring() {
@@ -184,6 +210,10 @@ class MainViewModel(
                     currentUserId?.let { userId ->
                         saveLocationToFirebase(location, userId)
                     }
+                    
+                    // Verificar status de geofence e rota
+                    checkAllGeofencesStatus(location)
+                    checkAllRoutesStatus(location)
                     
                     // Verifica rotas ativas em uma coroutine separada com prioridade baixa
                     viewModelScope.launch(Dispatchers.Default) {
@@ -408,15 +438,16 @@ class MainViewModel(
         }
     }
     fun loadUserRoutes(userId: String) {
+        Log.d(TAG1, "[loadUserRoutes] Iniciando carregamento de rotas para userId: $userId")
         _isLoadingRoutes.value = true
         firebaseRepository.getUserRoutes(userId) { routes, error ->
             _isLoadingRoutes.value = false
             if (error != null) {
-                Log.e(TAG1, "Erro ao carregar rotas", error)
+                Log.e(TAG1, "[loadUserRoutes] Erro ao carregar rotas", error)
                 _error.value = "Erro ao carregar rotas: ${error.message}"
             } else {
                 _routes.value = routes ?: emptyList()
-                Log.d(TAG1, "Rotas carregadas: ${routes?.size ?: 0}")
+                Log.d(TAG1, "[loadUserRoutes] Rotas carregadas: ${routes?.size ?: 0}")
             }
         }
         
@@ -712,10 +743,11 @@ class MainViewModel(
      * Deve ser chamada ao abrir telas sensíveis (ex: edição de rota, mapa, etc).
      */
     fun syncCurrentUser() {
+        Log.d(TAG1, "[syncCurrentUser] Iniciando sincronização do usuário")
         val firebaseUser = FirebaseAuth.getInstance().currentUser
         if (firebaseUser != null) {
             currentUserId = firebaseUser.uid
-            Log.d(TAG1, "syncCurrentUser: Usuário sincronizado: ${firebaseUser.uid}, email: ${firebaseUser.email}")
+            Log.d(TAG1, "[syncCurrentUser] Usuário sincronizado: ${firebaseUser.uid}, email: ${firebaseUser.email}")
             // Carregar dados do usuário e família após sincronizar
             loadCurrentUserData()
             // Carregar rotas após determinar o tipo de usuário
@@ -726,7 +758,7 @@ class MainViewModel(
             currentUserId = null
             // Parar monitoramento se não há usuário logado
             stopLocationMonitoring()
-            Log.w(TAG1, "syncCurrentUser: Nenhum usuário logado!")
+            Log.w(TAG1, "[syncCurrentUser] Nenhum usuário logado!")
         }
     }
 
@@ -734,30 +766,39 @@ class MainViewModel(
      * Carrega dados do usuário atual e verifica se é responsável
      */
     private fun loadCurrentUserData() {
+        Log.d(TAG1, "[loadCurrentUserData] Iniciando carregamento de dados do usuário")
         currentUserId?.let { userId ->
             firebaseRepository.getUserById(userId) { user, error ->
                 if (error != null) {
-                    Log.e(TAG1, "Erro ao carregar dados do usuário", error)
+                    Log.e(TAG1, "[loadCurrentUserData] Erro ao carregar dados do usuário", error)
                     _error.value = "Erro ao carregar dados do usuário: ${error.message}"
                 } else {
                     user?.let { currentUserData ->
                         _currentUser.value = currentUserData
                         val wasResponsible = _isResponsible.value
                         _isResponsible.value = currentUserData.type == "responsavel"
-                        Log.d(TAG1, "Usuário carregado: ${currentUserData.name}, tipo: ${currentUserData.type}")
+                        Log.d(TAG1, "[loadCurrentUserData] Usuário carregado: ${currentUserData.name}, tipo: ${currentUserData.type}, isResponsible: ${_isResponsible.value}")
                         
                         // Se o status de responsável mudou, recarregar rotas
                         if (wasResponsible != _isResponsible.value) {
+                            Log.d(TAG1, "[loadCurrentUserData] Status de responsável mudou, recarregando rotas")
                             loadUserRoutes(userId)
                         }
                         
                         // Se o usuário tem família, carregar membros
                         if (!currentUserData.familyId.isNullOrEmpty()) {
+                            Log.d(TAG1, "[loadCurrentUserData] Carregando membros da família: ${currentUserData.familyId}")
                             loadFamilyMembers(currentUserData.familyId!!)
+                        } else {
+                            Log.d(TAG1, "[loadCurrentUserData] Usuário não tem família definida")
                         }
+                    } ?: run {
+                        Log.w(TAG1, "[loadCurrentUserData] Usuário não encontrado no Firestore")
                     }
                 }
             }
+        } ?: run {
+            Log.w(TAG1, "[loadCurrentUserData] currentUserId é nulo")
         }
     }
 
@@ -794,35 +835,51 @@ class MainViewModel(
     fun isRouteActiveForToday(route: Route): Boolean {
         if (!route.isActive) return false
         
-        val today = java.time.DayOfWeek.from(java.time.LocalDate.now())
-        val dayNames = mapOf(
-            java.time.DayOfWeek.MONDAY to "Segunda",
-            java.time.DayOfWeek.TUESDAY to "Terça", 
-            java.time.DayOfWeek.WEDNESDAY to "Quarta",
-            java.time.DayOfWeek.THURSDAY to "Quinta",
-            java.time.DayOfWeek.FRIDAY to "Sexta",
-            java.time.DayOfWeek.SATURDAY to "Sábado",
-            java.time.DayOfWeek.SUNDAY to "Domingo"
-        )
+        val today = Calendar.getInstance()
+        val dayOfWeek = today.get(Calendar.DAY_OF_WEEK)
         
-        val todayName = dayNames[today] ?: return false
-        return route.activeDays.contains(todayName)
+        // Converter número do dia da semana para string (com acentos)
+        val dayName = when (dayOfWeek) {
+            Calendar.SUNDAY -> "Domingo"
+            Calendar.MONDAY -> "Segunda"
+            Calendar.TUESDAY -> "Terça"
+            Calendar.WEDNESDAY -> "Quarta"
+            Calendar.THURSDAY -> "Quinta"
+            Calendar.FRIDAY -> "Sexta"
+            Calendar.SATURDAY -> "Sábado"
+            else -> ""
+        }
+        
+        return route.activeDays.contains(dayName)
     }
 
     /**
-     * Filtra rotas que estão ativas para o usuário atual no dia atual
+     * Filtra rotas que estão ativas para hoje
      */
     fun getActiveRoutesForToday(): List<Route> {
-        return routes.value.filter { route ->
-            route.isActive && 
-            isRouteActiveForToday(route) &&
-            (
-                // Responsáveis veem todas as rotas que criaram
-                (isResponsible.value && route.createdByUserId == currentUserId) ||
-                // Membros veem apenas rotas onde são o targetUserId
-                (!isResponsible.value && route.targetUserId == currentUserId)
-            )
+        val today = Calendar.getInstance()
+        val dayOfWeek = today.get(Calendar.DAY_OF_WEEK)
+        
+        // Converter número do dia da semana para string (com acentos)
+        val dayName = when (dayOfWeek) {
+            Calendar.SUNDAY -> "Domingo"
+            Calendar.MONDAY -> "Segunda"
+            Calendar.TUESDAY -> "Terça"
+            Calendar.WEDNESDAY -> "Quarta"
+            Calendar.THURSDAY -> "Quinta"
+            Calendar.FRIDAY -> "Sexta"
+            Calendar.SATURDAY -> "Sábado"
+            else -> ""
         }
+        
+        Log.d(TAG1, "[getActiveRoutesForToday] Dia atual: $dayName, Total de rotas: ${routes.value.size}")
+        
+        val activeRoutes = routes.value.filter { route ->
+            route.isActive && route.activeDays.contains(dayName)
+        }
+        
+        Log.d(TAG1, "[getActiveRoutesForToday] Rotas ativas para hoje: ${activeRoutes.size}")
+        return activeRoutes
     }
 
     // ==================== FUNÇÕES DE GEOFENCE ====================
@@ -956,6 +1013,292 @@ class MainViewModel(
                 // Membros veem apenas geofences onde são o targetUserId
                 (!isResponsible.value && geofence.targetUserId == currentUserId)
             )
+        }
+    }
+
+    // Função utilitária para registrar notificação no Firestore
+    private fun registrarNotificacao(
+        tipoEvento: String, // "desvio", "saida", "volta"
+        childId: String?,
+        childName: String?,
+        latitude: Double?,
+        longitude: Double?,
+        horario: String,
+        titulo: String,
+        body: String
+    ) {
+        val userId = currentUserId ?: return
+        val notificacao = NotificationHistoryEntry(
+            id = null,
+            titulo = titulo,
+            body = body,
+            childId = childId,
+            childName = childName,
+            tipoEvento = tipoEvento,
+            latitude = latitude,
+            longitude = longitude,
+            horarioEvento = horario,
+            contagemTempo = System.currentTimeMillis(),
+            lida = false
+        )
+        firebaseRepository.saveNotificationToHistory(userId, notificacao) { success, exception ->
+            if (!success) {
+                Log.e(TAG1, "Erro ao salvar notificação no Firestore: ${exception?.message}")
+            } else {
+                Log.d(TAG1, "Notificação salva no Firestore: $notificacao")
+            }
+        }
+    }
+
+    /**
+     * Verifica o status de todas as geofences ativas para o usuário atual
+     */
+    private fun checkAllGeofencesStatus(location: Location) {
+        val activeGeofences = getActiveGeofencesForUser()
+        val currentStatusMap = _geofenceStatusMap.value.toMutableMap()
+        val currentTime = System.currentTimeMillis()
+        
+        activeGeofences.forEach { geofence ->
+            val geofenceId = geofence.id ?: return@forEach
+            val isInside = geofenceHelperClass.isLocationInGeofence(location, geofence)
+            val previousStatus = currentStatusMap[geofenceId]
+            
+            // Atualiza o status atual
+            currentStatusMap[geofenceId] = isInside
+            
+            // Verifica se houve mudança de status
+            if (previousStatus != null && previousStatus != isInside) {
+                val notificationKey = "geofence_${geofenceId}_${if (isInside) "return" else "exit"}"
+                
+                // Verifica se já foi notificado recentemente
+                if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > NOTIFICATION_COOLDOWN) {
+                    lastNotificationTime[notificationKey] = currentTime
+                    
+                    if (!isInside) {
+                        // Usuário saiu da geofence
+                        Log.d(TAG1, "Usuário saiu da geofence: ${geofence.name}")
+                        _showExitNotificationEvent.tryEmit(geofence.name)
+                        onGeofenceExit(geofence, location)
+                    } else {
+                        // Usuário voltou para a geofence
+                        Log.d(TAG1, "Usuário voltou para a geofence: ${geofence.name}")
+                        onGeofenceReturn(geofence, location)
+                    }
+                }
+            }
+        }
+        
+        _geofenceStatusMap.value = currentStatusMap
+        
+        // Atualiza o status geral (se está dentro de alguma geofence)
+        val isInsideAnyGeofence = currentStatusMap.values.any { it }
+        _isUserInsideGeofence.value = isInsideAnyGeofence
+    }
+
+    /**
+     * Verifica o status de todas as rotas ativas para o usuário atual
+     */
+    private fun checkAllRoutesStatus(location: Location) {
+        val activeRoutes = getActiveRoutesForToday()
+        Log.d(TAG1, "[checkAllRoutesStatus] Rotas ativas para hoje: ${activeRoutes.size}")
+        
+        val currentStatusMap = _routeStatusMap.value.toMutableMap()
+        val currentTime = System.currentTimeMillis()
+        
+        activeRoutes.forEach { route ->
+            val routeId = route.id ?: return@forEach
+            val isOnRoute = routeHelper.isLocationOnRoute(location, route)
+            val previousStatus = currentStatusMap[routeId]
+            
+            // Atualiza o status atual
+            currentStatusMap[routeId] = isOnRoute
+            
+            // Verifica se houve mudança de status
+            if (previousStatus != null && previousStatus != isOnRoute) {
+                val notificationKey = "route_${routeId}_${if (isOnRoute) "return" else "exit"}"
+                
+                // Verifica se já foi notificado recentemente
+                if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > NOTIFICATION_COOLDOWN) {
+                    lastNotificationTime[notificationKey] = currentTime
+                    
+                    if (!isOnRoute) {
+                        // Usuário saiu da rota
+                        Log.d(TAG1, "[checkAllRoutesStatus] Usuário saiu da rota: ${route.name}")
+                        _showRouteExitNotificationEvent.tryEmit(route.name)
+                        onRouteDeviation(route, location)
+                    } else {
+                        // Usuário voltou para a rota
+                        Log.d(TAG1, "[checkAllRoutesStatus] Usuário voltou para a rota: ${route.name}")
+                        onRouteReturn(route, location)
+                    }
+                } else {
+                    Log.d(TAG1, "[checkAllRoutesStatus] Notificação ignorada devido ao cooldown para rota: ${route.name}")
+                }
+            }
+        }
+        
+        _routeStatusMap.value = currentStatusMap
+        
+        // Atualiza o status geral (se está em alguma rota)
+        val isOnAnyRoute = currentStatusMap.values.any { it }
+        _isLocationOnRoute.value = isOnAnyRoute
+    }
+
+    /**
+     * Obtém o nome do dependente atual
+     */
+    private fun getCurrentDependentName(): String? {
+        return _currentUser.value?.name
+    }
+
+    /**
+     * Obtém o endereço da localização atual
+     */
+    private fun getLocationAddress(location: Location, callback: (String?) -> Unit) {
+        geocodingService.getAddressFromLocation(location) { address ->
+            callback(address)
+        }
+    }
+
+    // 1. Saída de geofence
+    private fun onGeofenceExit(geofence: Geofence, location: Location) {
+        val childName = getCurrentDependentName()
+        val horario = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("pt", "BR")).format(Date())
+        
+        getLocationAddress(location) { address ->
+            val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
+            val notificacao = NotificationHistoryEntry(
+                id = null,
+                titulo = "Saída de Área Segura",
+                body = "${childName ?: "Dependente"} saiu da área segura '${geofence.name}' às $horario. $locationInfo",
+                childId = currentUserId,
+                childName = childName,
+                tipoEvento = "saida_geofence",
+                latitude = location.latitude,
+                longitude = location.longitude,
+                horarioEvento = horario,
+                contagemTempo = System.currentTimeMillis(),
+                lida = false
+            )
+            
+            // Salva para dependente e responsável
+            currentUserId?.let { userId ->
+                firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
+                    if (!success) {
+                        Log.e(TAG1, "Erro ao salvar notificação de saída de geofence: ${exception?.message}")
+                    } else {
+                        Log.d(TAG1, "Notificação de saída de geofence salva com sucesso")
+                    }
+                }
+            }
+        }
+    }
+    
+    // 2. Retorno à geofence
+    private fun onGeofenceReturn(geofence: Geofence, location: Location) {
+        val childName = getCurrentDependentName()
+        val horario = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("pt", "BR")).format(Date())
+        
+        getLocationAddress(location) { address ->
+            val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
+            val notificacao = NotificationHistoryEntry(
+                id = null,
+                titulo = "Retorno à Área Segura",
+                body = "${childName ?: "Dependente"} voltou para a área segura '${geofence.name}' às $horario. $locationInfo",
+                childId = currentUserId,
+                childName = childName,
+                tipoEvento = "volta_geofence",
+                latitude = location.latitude,
+                longitude = location.longitude,
+                horarioEvento = horario,
+                contagemTempo = System.currentTimeMillis(),
+                lida = false
+            )
+            
+            // Salva para dependente e responsável
+            currentUserId?.let { userId ->
+                firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
+                    if (!success) {
+                        Log.e(TAG1, "Erro ao salvar notificação de retorno à geofence: ${exception?.message}")
+                    } else {
+                        Log.d(TAG1, "Notificação de retorno à geofence salva com sucesso")
+                    }
+                }
+            }
+        }
+    }
+    
+    // 3. Desvio de rota
+    private fun onRouteDeviation(route: Route, location: Location) {
+        val childName = getCurrentDependentName()
+        val horario = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("pt", "BR")).format(Date())
+        Log.d(TAG1, "[onRouteDeviation] Chamado para rota: ${route.name}, userId: $currentUserId, childName: $childName, location: (${location.latitude}, ${location.longitude})")
+        if (currentUserId == null) {
+            Log.e(TAG1, "[onRouteDeviation] currentUserId está nulo! Não é possível salvar notificação.")
+            return
+        }
+        getLocationAddress(location) { address ->
+            val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
+            val notificacao = NotificationHistoryEntry(
+                id = null,
+                titulo = "Desvio de Rota",
+                body = "${childName ?: "Dependente"} saiu da rota '${route.name}' às $horario. $locationInfo",
+                childId = currentUserId,
+                childName = childName,
+                tipoEvento = "saida_rota",
+                latitude = location.latitude,
+                longitude = location.longitude,
+                horarioEvento = horario,
+                contagemTempo = System.currentTimeMillis(),
+                lida = false
+            )
+            Log.d(TAG1, "[onRouteDeviation] Notificação criada: $notificacao")
+            // Salva para dependente e responsável
+            currentUserId?.let { userId ->
+                firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
+                    if (!success) {
+                        Log.e(TAG1, "[onRouteDeviation] Erro ao salvar notificação de desvio de rota: ${exception?.message}")
+                    } else {
+                        Log.d(TAG1, "[onRouteDeviation] Notificação de desvio de rota salva com sucesso para userId: $userId")
+                    }
+                }
+            } ?: run {
+                Log.e(TAG1, "[onRouteDeviation] currentUserId nulo no momento de salvar notificação!")
+            }
+        }
+    }
+
+    // 4. Retorno à rota
+    private fun onRouteReturn(route: Route, location: Location) {
+        val childName = getCurrentDependentName()
+        val horario = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("pt", "BR")).format(Date())
+        
+        getLocationAddress(location) { address ->
+            val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
+            val notificacao = NotificationHistoryEntry(
+                id = null,
+                titulo = "Retorno à Rota",
+                body = "${childName ?: "Dependente"} voltou para a rota '${route.name}' às $horario. $locationInfo",
+                childId = currentUserId,
+                childName = childName,
+                tipoEvento = "volta_rota",
+                latitude = location.latitude,
+                longitude = location.longitude,
+                horarioEvento = horario,
+                contagemTempo = System.currentTimeMillis(),
+                lida = false
+            )
+            
+            // Salva para dependente e responsável
+            currentUserId?.let { userId ->
+                firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
+                    if (!success) {
+                        Log.e(TAG1, "Erro ao salvar notificação de retorno à rota: ${exception?.message}")
+                    } else {
+                        Log.d(TAG1, "Notificação de retorno à rota salva com sucesso")
+                    }
+                }
+            }
         }
     }
 

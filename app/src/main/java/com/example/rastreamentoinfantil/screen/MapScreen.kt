@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material3.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -73,7 +75,7 @@ fun MapScreen(
     val routes by mainViewModel.routes.collectAsState()
     val isLoadingRoutes by mainViewModel.isLoadingRoutes.collectAsState()
     val isResponsible by mainViewModel.isResponsible.collectAsStateWithLifecycle()
-    
+
     // Observar geofences ativas
     val geofences by mainViewModel.geofences.collectAsStateWithLifecycle()
     val activeGeofences = remember(geofences) {
@@ -162,7 +164,7 @@ fun MapScreen(
                         IconButton(
                             onClick = { navController.navigate(ROUTE_LIST_SCREEN) }
                         ) {
-                            Icon(Icons.Default.List, contentDescription = "Rotas")
+                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Rotas")
                         }
                         
                         // Botão de família
@@ -170,6 +172,13 @@ fun MapScreen(
                             onClick = { navController.navigate(FAMILY_SCREEN) }
                         ) {
                             Icon(Icons.Default.Person, contentDescription = "Família")
+                        }
+                        
+                        // Botão de histórico de notificações
+                        IconButton(
+                            onClick = { navController.navigate(AppDestinations.NOTIFICATION_HISTORY_SCREEN) }
+                        ) {
+                            Icon(Icons.Default.Notifications, contentDescription = "Histórico de Notificações")
                         }
                         
                         // Botão de logout
@@ -183,7 +192,7 @@ fun MapScreen(
                                 }
                             }
                         ) {
-                            Icon(Icons.Default.ExitToApp, contentDescription = "Sair")
+                            Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Sair")
                         }
                     }
                 }
@@ -301,7 +310,7 @@ fun MapScreen(
                         title = geofence.name,
                         snippet = "Raio: ${geofence.radius.toInt()}m - ${if(geofence.isActive) "Ativa" else "Inativa"}"
                     )
-                }
+            }
 
                 // Geofence em edição
             if (isEditingGeofence && newGeofenceCenter != null) {

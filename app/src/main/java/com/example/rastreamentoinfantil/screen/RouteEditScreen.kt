@@ -367,147 +367,147 @@ fun RouteEditScreen(
                 verticalArrangement = Arrangement.spacedBy(dimensions.paddingMediumDp)
             ) {
                 item {
-                    // Seção de Configuração Básica (colapsável)
-                    Card(
+            // Seção de Configuração Básica (colapsável)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(dimensions.paddingMediumDp)
+                ) {
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(
-                            modifier = Modifier.padding(dimensions.paddingMediumDp)
+                        Text(
+                            "Configuração Básica",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        IconButton(onClick = { showConfigSection = !showConfigSection }) {
+                            Icon(
+                                if (showConfigSection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (showConfigSection) "Recolher" else "Expandir"
+                            )
+                        }
+                    }
+                    
+                    if (showConfigSection) {
+                        Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
+                        
+                        OutlinedTextField(
+                            value = routeName,
+                            onValueChange = { routeName = it },
+                            label = { Text("Nome da Rota") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        
+                        Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    "Configuração Básica",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                IconButton(onClick = { showConfigSection = !showConfigSection }) {
-                                    Icon(
-                                        if (showConfigSection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                        contentDescription = if (showConfigSection) "Recolher" else "Expandir"
-                                    )
+                            Text("Rota Ativa:", style = MaterialTheme.typography.bodyLarge)
+                            Spacer(modifier = Modifier.width(dimensions.paddingSmallDp))
+                            Switch(
+                                checked = isRouteActive,
+                                onCheckedChange = { isRouteActive = it }
+                            )
                                 }
-                            }
-                            
-                            if (showConfigSection) {
-                                Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
-                                
-                                OutlinedTextField(
-                                    value = routeName,
-                                    onValueChange = { routeName = it },
-                                    label = { Text("Nome da Rota") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true
-                                )
-                                
-                                Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
-                                
+                        }
+                    }
+                }
+            }
+
+                item {
+            // Seção de Dias da Semana (colapsável)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(dimensions.paddingMediumDp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Dias da Semana",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        IconButton(onClick = { showDaysSection = !showDaysSection }) {
+                            Icon(
+                                if (showDaysSection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (showDaysSection) "Recolher" else "Expandir"
+                            )
+                        }
+                    }
+                    
+                    if (showDaysSection) {
+                        Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
+                        
+                        val weekDays = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+                        LazyColumn(
+                            modifier = Modifier.height(200.dp)
+                        ) {
+                            items(weekDays) { day ->
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Rota Ativa:", style = MaterialTheme.typography.bodyLarge)
-                                    Spacer(modifier = Modifier.width(dimensions.paddingSmallDp))
-                                    Switch(
-                                        checked = isRouteActive,
-                                        onCheckedChange = { isRouteActive = it }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    // Seção de Dias da Semana (colapsável)
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(dimensions.paddingMediumDp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    "Dias da Semana",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                IconButton(onClick = { showDaysSection = !showDaysSection }) {
-                                    Icon(
-                                        if (showDaysSection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                        contentDescription = if (showDaysSection) "Recolher" else "Expandir"
-                                    )
-                                }
-                            }
-                            
-                            if (showDaysSection) {
-                                Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
-                                
-                                val weekDays = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
-                                LazyColumn(
-                                    modifier = Modifier.height(200.dp)
-                                ) {
-                                    items(weekDays) { day ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Checkbox(
-                                                checked = selectedActiveDays.contains(day),
-                                                onCheckedChange = { checked ->
-                                                    selectedActiveDays = if (checked) {
-                                                        selectedActiveDays + day
-                                                    } else {
-                                                        selectedActiveDays - day
-                                                    }
-                                                }
-                                            )
-                                            Text(day, style = MaterialTheme.typography.bodyMedium)
+                                    Checkbox(
+                                        checked = selectedActiveDays.contains(day),
+                                        onCheckedChange = { checked ->
+                                            selectedActiveDays = if (checked) {
+                                                selectedActiveDays + day
+                                            } else {
+                                                selectedActiveDays - day
+                                            }
                                         }
-                                    }
+                                    )
+                                    Text(day, style = MaterialTheme.typography.bodyMedium)
+                                        }
                                 }
                             }
-                        }
-                    }
-                }
+        }
+    }
+}
+            }
 
                 item {
-                    // Seção de Família (colapsável)
-                    Card(
+            // Seção de Família (colapsável)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(dimensions.paddingMediumDp)
+                ) {
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(
-                            modifier = Modifier.padding(dimensions.paddingMediumDp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    "Usuário da Família",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                IconButton(onClick = { showFamilySection = !showFamilySection }) {
-                                    Icon(
-                                        if (showFamilySection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                        contentDescription = if (showFamilySection) "Recolher" else "Expandir"
-                                    )
-                                }
-                            }
-                            
-                            if (showFamilySection) {
-                                Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
+                        Text(
+                            "Usuário da Família",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        IconButton(onClick = { showFamilySection = !showFamilySection }) {
+                            Icon(
+                                if (showFamilySection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (showFamilySection) "Recolher" else "Expandir"
+                            )
+                        }
+                    }
+                    
+                    if (showFamilySection) {
+                        Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
                                 
                                 // Opção "Nenhum" para não atribuir a nenhum membro
                                 Row(
@@ -525,31 +525,31 @@ fun RouteEditScreen(
                                         Text("A rota ficará visível apenas para você", style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
-                                
-                                if (familyMembers.isNotEmpty()) {
-                                    LazyColumn(
-                                        modifier = Modifier.height(150.dp)
+                        
+                        if (familyMembers.isNotEmpty()) {
+                            LazyColumn(
+                                modifier = Modifier.height(150.dp)
+                            ) {
+                                items(familyMembers) { member ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        items(familyMembers) { member ->
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                RadioButton(
-                                                    selected = selectedTargetUserId == member.id,
-                                                    onClick = { selectedTargetUserId = member.id ?: "" }
-                                                )
-                                                Column {
-                                                    Text(member.name ?: "Sem nome", style = MaterialTheme.typography.bodyMedium)
-                                                    Text(member.email ?: "", style = MaterialTheme.typography.bodySmall)
-                                                }
-                                            }
+                                        RadioButton(
+                                            selected = selectedTargetUserId == member.id,
+                                            onClick = { selectedTargetUserId = member.id ?: "" }
+                                        )
+                                        Column {
+                                            Text(member.name ?: "Sem nome", style = MaterialTheme.typography.bodyMedium)
+                                            Text(member.email ?: "", style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
-                                } else {
-                                    Text("Nenhum membro da família encontrado", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        } else {
+                            Text("Nenhum membro da família encontrado", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }

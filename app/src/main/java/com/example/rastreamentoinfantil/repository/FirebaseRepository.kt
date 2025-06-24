@@ -3,6 +3,7 @@ package com.example.rastreamentoinfantil.repository
 import android.util.Log
 import com.example.rastreamentoinfantil.model.Family
 import com.example.rastreamentoinfantil.model.FamilyInvite
+import com.example.rastreamentoinfantil.model.FamilyRelationship
 import com.example.rastreamentoinfantil.model.LocationRecord
 import com.example.rastreamentoinfantil.model.User
 import com.example.rastreamentoinfantil.model.Geofence
@@ -24,14 +25,13 @@ class FirebaseRepository {
     companion object {
         private const val TAG = "FirebaseRepository"
         private const val USERS_COLLECTION = "users"
+        private const val GEOFENCES_COLLECTION = "geofences"
+        private const val ROUTES_COLLECTION = "routes"
         private const val LOCATION_RECORDS_COLLECTION = "locationRecords"
         private const val NOTIFICATION_HISTORY_COLLECTION = "notificationHistory"
-        private const val ACTIVE_GEOFENCE_COLLECTION = "activeGeofence"
-        private const val ACTIVE_GEOFENCE_DETAILS_DOC = "details"
-        private const val ROUTES_COLLECTION = "routes"
+        private const val FAMILY_RELATIONSHIPS_COLLECTION = "familyRelationships"
         private const val FAMILIES_COLLECTION = "families"
         private const val INVITES_COLLECTION = "familyInvites"
-        private const val GEOFENCES_COLLECTION = "geofences"
     }
 
     fun getUserById(userId: String, callback: (User?, Exception?) -> Unit) {
@@ -209,8 +209,8 @@ class FirebaseRepository {
             return
         }
         firestore.collection(USERS_COLLECTION).document(userId)
-            .collection(ACTIVE_GEOFENCE_COLLECTION)
-            .document(ACTIVE_GEOFENCE_DETAILS_DOC)
+            .collection(GEOFENCES_COLLECTION)
+            .document("user_geofence")
             .set(geofence, SetOptions.merge())
             .addOnSuccessListener {
                 Log.d(TAG, "Geofence ativa salva/atualizada para o usuário $userId. ID da Geofence: ${geofence.id}")
@@ -229,8 +229,8 @@ class FirebaseRepository {
             return
         }
         firestore.collection(USERS_COLLECTION).document(userId)
-            .collection(ACTIVE_GEOFENCE_COLLECTION)
-            .document(ACTIVE_GEOFENCE_DETAILS_DOC)
+            .collection(GEOFENCES_COLLECTION)
+            .document("user_geofence")
             .get()
             .addOnSuccessListener { document ->
                 if (document != null && document.exists()) {
@@ -268,8 +268,8 @@ class FirebaseRepository {
             return
         }
         firestore.collection(USERS_COLLECTION).document(userId)
-            .collection(ACTIVE_GEOFENCE_COLLECTION)
-            .document(ACTIVE_GEOFENCE_DETAILS_DOC)
+            .collection(GEOFENCES_COLLECTION)
+            .document("user_geofence")
             .delete()
             .addOnSuccessListener {
                 Log.d(TAG, "Geofence ativa deletada para o usuário $userId")
@@ -320,8 +320,9 @@ class FirebaseRepository {
     }
 
         fun saveNotificationToHistory(userId: String, notificationEntry: NotificationHistoryEntry, onComplete: (Boolean, Exception?) -> Unit) {
+        Log.d(TAG, "[saveNotificationToHistory] Início. userId: $userId, notificationEntry: $notificationEntry")
         if (userId.isEmpty()) {
-            Log.w(TAG, "saveNotificationToHistory: userId está vazio.")
+            Log.w(TAG, "[saveNotificationToHistory] userId está vazio.")
             onComplete(false, IllegalArgumentException("userId está vazio."))
             return
         }
@@ -333,16 +334,18 @@ class FirebaseRepository {
         } else {
             notificationEntry
         }
+        
+        Log.d(TAG, "[saveNotificationToHistory] Salvando notificação com ID: $entryId")
 
         firestore.collection(USERS_COLLECTION).document(userId)
             .collection(NOTIFICATION_HISTORY_COLLECTION).document(entryId)
             .set(entryToSave)
             .addOnSuccessListener {
-                Log.d(TAG, "Notificação '$entryId' salva no histórico para o usuário $userId")
+                Log.d(TAG, "[saveNotificationToHistory] Notificação '$entryId' salva no histórico para o usuário $userId")
                 onComplete(true, null)
             }
             .addOnFailureListener { e ->
-                Log.e(TAG, "Erro ao salvar notificação '$entryId' no histórico para o usuário $userId", e)
+                Log.e(TAG, "[saveNotificationToHistory] Erro ao salvar notificação '$entryId' no histórico para o usuário $userId", e)
                 onComplete(false, e)
             }
     }
@@ -355,7 +358,7 @@ class FirebaseRepository {
         }
         firestore.collection(USERS_COLLECTION).document(userId)
             .collection(NOTIFICATION_HISTORY_COLLECTION)
-            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .orderBy("contagemTempo", Query.Direction.DESCENDING)
             .limit(50)
             .get()
             .addOnSuccessListener { documents ->
@@ -417,9 +420,9 @@ class FirebaseRepository {
             val targetUserId = route.targetUserId
             
             Log.d(TAG, "saveRoute: Verificando targetUserId. Novo valor: $targetUserId, userId atual: $userId")
-            
-            // Se a rota já existe, primeiro buscar o targetUserId anterior para removê-lo
-            if (!route.id.isNullOrEmpty()) {
+                
+                // Se a rota já existe, primeiro buscar o targetUserId anterior para removê-lo
+                if (!route.id.isNullOrEmpty()) {
                 Log.d(TAG, "saveRoute: Rota existente, buscando targetUserId anterior...")
                 Log.d(TAG, "saveRoute: Buscando documento na coleção do usuário $userId, rota ID: ${route.id}")
                 
@@ -479,25 +482,25 @@ class FirebaseRepository {
                         if (normalizedCurrent != null && normalizedCurrent != userId) {
                             Log.d(TAG, "saveRoute: Erro na busca, salvando rota no usuário $normalizedCurrent")
                             saveRouteInMemberCollection(normalizedCurrent, route, savedRouteId, onComplete)
-                        } else {
+                                } else {
                             Log.d(TAG, "saveRoute: Erro na busca, targetUserId é null/vazio ou igual ao userId. Não salvando em coleção de membro.")
-                            onComplete(savedRouteId, null)
+                                    onComplete(savedRouteId, null)
                         }
-                    }
-            } else {
+                                }
+                            } else {
                 // Nova rota, salvar no usuário se necessário
                 Log.d(TAG, "saveRoute: Nova rota, verificando se deve salvar em coleção de membro")
                 val normalizedCurrent = if (targetUserId.isNullOrEmpty()) null else targetUserId
                 if (normalizedCurrent != null && normalizedCurrent != userId) {
                     Log.d(TAG, "saveRoute: Salvando nova rota no usuário $normalizedCurrent")
                     saveRouteInMemberCollection(normalizedCurrent, route, savedRouteId, onComplete)
-                } else {
+                                } else {
                     Log.d(TAG, "saveRoute: Nova rota - targetUserId é null/vazio ou igual ao userId. Não salvando em coleção de membro.")
-                    onComplete(savedRouteId, null)
-                }
-            }
-        }
-        .addOnFailureListener { e ->
+                                    onComplete(savedRouteId, null)
+                                }
+                            }
+                        }
+                        .addOnFailureListener { e ->
             Log.e(TAG, "Erro ao salvar rota '${route.name}' para o usuário $userId", e)
             onComplete(null, e)
         }
@@ -538,7 +541,7 @@ class FirebaseRepository {
                 removeRouteFromUser(normalizedPrevious, savedRouteId) { success, exception ->
                     if (!success) {
                         Log.w(TAG, "Aviso: Não foi possível remover rota do usuário anterior $normalizedPrevious")
-                    } else {
+                } else {
                         Log.d(TAG, "processRouteUpdate: Rota removida com sucesso do usuário anterior $normalizedPrevious")
                     }
                     // Após remover do usuário anterior, salvar no novo usuário se necessário
@@ -557,7 +560,7 @@ class FirebaseRepository {
             } else {
                 // targetUserId é null, vazio ou igual ao userId - não salvar em coleção de membro
                 Log.d(TAG, "processRouteUpdate: targetUserId é null/vazio ou igual ao userId. Não salvando em coleção de membro.")
-                onComplete(savedRouteId, null)
+            onComplete(savedRouteId, null)
             }
         } else {
             Log.w(TAG, "processRouteUpdate: Rota não encontrada em nenhuma coleção, tratando como nova")
@@ -872,8 +875,8 @@ class FirebaseRepository {
             firestore.collection(USERS_COLLECTION).document(deleteUserId)
                 .collection(ROUTES_COLLECTION)
                 .document(routeId)
-                .delete()
-                .addOnSuccessListener {
+            .delete()
+            .addOnSuccessListener {
                     Log.d(TAG, "deleteRouteFromAllCollections: Rota $routeId deletada com sucesso do usuário $deleteUserId")
                     completedDeletions++
                     
@@ -883,11 +886,11 @@ class FirebaseRepository {
                             onComplete(false, lastError)
                         } else {
                             Log.d(TAG, "deleteRouteFromAllCollections: Todas as exclusões foram concluídas com sucesso")
-                            onComplete(true, null)
+                onComplete(true, null)
                         }
                     }
-                }
-                .addOnFailureListener { e ->
+            }
+            .addOnFailureListener { e ->
                     Log.e(TAG, "deleteRouteFromAllCollections: Erro ao deletar rota $routeId do usuário $deleteUserId", e)
                     hasError = true
                     lastError = e
@@ -898,7 +901,7 @@ class FirebaseRepository {
                         onComplete(false, lastError)
                     }
                 }
-        }
+            }
     }
 
     /**
@@ -1812,6 +1815,129 @@ class FirebaseRepository {
             .addOnFailureListener { e ->
                 Log.e(TAG, "Erro ao buscar usuários para geofences ativas", e)
                 callback(null, e)
+        }
+    }
+
+    // Métodos para relacionamentos familiares
+    fun saveFamilyRelationship(relationship: FamilyRelationship, onComplete: (Boolean, Exception?) -> Unit) {
+        val relationshipId = relationship.id ?: UUID.randomUUID().toString()
+        val relationshipToSave = relationship.copy(id = relationshipId)
+        
+        firestore.collection(FAMILY_RELATIONSHIPS_COLLECTION)
+            .document(relationshipId)
+            .set(relationshipToSave)
+            .addOnSuccessListener {
+                Log.d(TAG, "Relacionamento familiar salvo: $relationshipId")
+                onComplete(true, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao salvar relacionamento familiar", e)
+                onComplete(false, e)
+            }
+    }
+
+    fun getDependentsForResponsible(responsibleId: String, onComplete: (List<FamilyRelationship>?, Exception?) -> Unit) {
+        firestore.collection(FAMILY_RELATIONSHIPS_COLLECTION)
+            .whereEqualTo("responsibleId", responsibleId)
+            .whereEqualTo("isActive", true)
+            .get()
+            .addOnSuccessListener { documents ->
+                val relationships = documents.mapNotNull { document ->
+                    try {
+                        document.toObject(FamilyRelationship::class.java)?.apply {
+                            this.id = document.id
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Erro ao converter documento para FamilyRelationship", e)
+                        null
+                    }
+                }
+                Log.d(TAG, "Dependentes encontrados para responsável $responsibleId: ${relationships.size}")
+                onComplete(relationships, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Erro ao buscar dependentes para responsável $responsibleId", e)
+                onComplete(null, e)
+            }
+    }
+
+    fun getResponsibleForDependent(dependentId: String, onComplete: (FamilyRelationship?, Exception?) -> Unit) {
+        Log.d(TAG, "[getResponsibleForDependent] Buscando responsável para dependente: $dependentId")
+        firestore.collection(FAMILY_RELATIONSHIPS_COLLECTION)
+            .whereEqualTo("dependentId", dependentId)
+            .whereEqualTo("isActive", true)
+            .limit(1)
+            .get()
+            .addOnSuccessListener { documents ->
+                Log.d(TAG, "[getResponsibleForDependent] Documentos encontrados: ${documents.size()}")
+                val relationship = documents.firstOrNull()?.let { document ->
+                    try {
+                        document.toObject(FamilyRelationship::class.java)?.apply {
+                            this.id = document.id
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[getResponsibleForDependent] Erro ao converter documento para FamilyRelationship", e)
+                        null
+                    }
+                }
+                if (relationship != null) {
+                    Log.d(TAG, "[getResponsibleForDependent] Responsável encontrado: ${relationship.responsibleId} - ${relationship.responsibleName}")
+                } else {
+                    Log.w(TAG, "[getResponsibleForDependent] Nenhum responsável encontrado para dependente $dependentId")
+                }
+                onComplete(relationship, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "[getResponsibleForDependent] Erro ao buscar responsável para dependente $dependentId", e)
+                onComplete(null, e)
+            }
+    }
+
+    // Método para salvar notificação dupla (dependente e responsável)
+    fun saveNotificationToBothUsers(
+        dependentId: String,
+        notificationEntry: NotificationHistoryEntry,
+        onComplete: (Boolean, Exception?) -> Unit
+    ) {
+        Log.d(TAG, "[saveNotificationToBothUsers] Início. dependentId: $dependentId, notificationEntry: $notificationEntry")
+        // Primeiro, salva no histórico do dependente
+        saveNotificationToHistory(dependentId, notificationEntry) { success, exception ->
+            if (!success) {
+                Log.e(TAG, "[saveNotificationToBothUsers] Erro ao salvar notificação para dependente $dependentId", exception)
+                onComplete(false, exception)
+                return@saveNotificationToHistory
+            } else {
+                Log.d(TAG, "[saveNotificationToBothUsers] Notificação salva para dependente $dependentId")
+            }
+            // Depois, busca o responsável e salva no histórico dele
+            getResponsibleForDependent(dependentId) { relationship, exception ->
+                if (exception != null) {
+                    Log.e(TAG, "[saveNotificationToBothUsers] Erro ao buscar responsável para dependente $dependentId", exception)
+                }
+                if (relationship == null) {
+                    Log.w(TAG, "[saveNotificationToBothUsers] Responsável não encontrado para dependente $dependentId. Notificação salva apenas para dependente.")
+                    onComplete(true, null) // Notificação salva apenas para dependente
+                    return@getResponsibleForDependent
+                }
+                Log.d(TAG, "[saveNotificationToBothUsers] Responsável encontrado: ${relationship.responsibleId} - ${relationship.responsibleName}")
+                // Cria notificação para o responsável com informações do dependente
+                val responsibleNotification = notificationEntry.copy(
+                    id = null, // Novo ID será gerado
+                    childId = dependentId,
+                    childName = relationship.dependentName,
+                    titulo = "Alerta: ${relationship.dependentName} - ${notificationEntry.titulo}",
+                    body = "${relationship.dependentName}: ${notificationEntry.body}"
+                )
+                Log.d(TAG, "[saveNotificationToBothUsers] Salvando notificação para responsável: ${relationship.responsibleId}, notificação: $responsibleNotification")
+                saveNotificationToHistory(relationship.responsibleId, responsibleNotification) { success, exception ->
+                    if (success) {
+                        Log.d(TAG, "[saveNotificationToBothUsers] Notificação salva para responsável ${relationship.responsibleId}")
+                    } else {
+                        Log.e(TAG, "[saveNotificationToBothUsers] Erro ao salvar notificação para responsável ${relationship.responsibleId}", exception)
+                    }
+                    onComplete(success, exception)
+                }
+            }
         }
     }
 }

@@ -28,6 +28,8 @@ import com.example.rastreamentoinfantil.viewmodel.FamilyViewModel
 import com.example.rastreamentoinfantil.viewmodel.LoginViewModel
 import com.example.rastreamentoinfantil.viewmodel.LoginViewModelFactory
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
+import com.example.rastreamentoinfantil.viewmodel.NotificationHistoryViewModel
+import com.example.rastreamentoinfantil.viewmodel.FamilyRelationshipViewModel
 import com.google.firebase.auth.FirebaseAuth
 
 object AppDestinations {
@@ -47,6 +49,7 @@ object AppDestinations {
     const val GEOFENCE_EDIT_SCREEN_BASE = "geofenceEdit"
     const val GEOFENCE_EDIT_SCREEN_ARG_ID = "geofenceId"
     const val GEOFENCE_EDIT_SCREEN = "$GEOFENCE_EDIT_SCREEN_BASE/{$GEOFENCE_EDIT_SCREEN_ARG_ID}"
+    const val NOTIFICATION_HISTORY_SCREEN = "notificationHistory"
 }
 
 @Composable
@@ -251,6 +254,31 @@ fun Navigation(
         ) { backStackEntry ->
             val geofenceId = backStackEntry.arguments?.getString(AppDestinations.GEOFENCE_EDIT_SCREEN_ARG_ID)
             GeofenceEditScreen(navController = navController, mainViewModel = mainViewModel, geofenceId = geofenceId)
+        }
+
+        composable(AppDestinations.NOTIFICATION_HISTORY_SCREEN) {
+            val notificationHistoryViewModel = ViewModelProvider(
+                activity,
+                object : ViewModelProvider.Factory {
+                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                        if (modelClass.isAssignableFrom(NotificationHistoryViewModel::class.java)) {
+                            @Suppress("UNCHECKED_CAST")
+                            return NotificationHistoryViewModel(firebaseRepository) as T
+                        }
+                        throw IllegalArgumentException("Unknown ViewModel class")
+                    }
+                }
+            )[NotificationHistoryViewModel::class.java]
+
+            // Determinar se o usuário é responsável baseado no mainViewModel
+            val isResponsible = mainViewModel.isResponsible.value
+
+            NotificationHistoryScreen(
+                viewModel = notificationHistoryViewModel,
+                userId = currentUserId,
+                isResponsible = isResponsible,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
     }
 }
