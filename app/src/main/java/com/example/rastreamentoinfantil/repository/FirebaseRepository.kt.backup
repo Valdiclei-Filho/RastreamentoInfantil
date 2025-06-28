@@ -125,17 +125,17 @@ class FirebaseRepository {
         auth.signOut()
         Log.i(TAG, "Usuário deslogado: $userId")
     }
-    fun saveLocationRecord(record: LocationRecord, userId: String, callback: (Boolean, Exception?) -> Unit) {
+        fun saveLocationRecord(record: LocationRecord, userId: String, callback: (Boolean, Exception?) -> Unit) {
         Log.d(TAG, "saveLocationRecord: Iniciando salvamento de registro de localização")
         Log.d(TAG, "saveLocationRecord: userId = $userId")
         Log.d(TAG, "saveLocationRecord: record = latitude=${record.latitude}, longitude=${record.longitude}, address=${record.address}, dateTime=${record.dateTime}")
-
+        
         if (userId.isEmpty()) {
             Log.w(TAG, "saveLocationRecord: userId está vazio.")
             callback(false, IllegalArgumentException("userId está vazio."))
             return
         }
-
+        
         Log.d(TAG, "saveLocationRecord: Salvando no Firestore...")
         firestore.collection(USERS_COLLECTION).document(userId).collection(LOCATION_RECORDS_COLLECTION)
             .add(record)
@@ -281,7 +281,7 @@ class FirebaseRepository {
             }
     }
 
-    fun fetchUserData(callback: (User?, Exception?) -> Unit) {
+        fun fetchUserData(callback: (User?, Exception?) -> Unit) {
         val currentFirebaseUser = auth.currentUser
         if (currentFirebaseUser == null) {
             Log.w(TAG, "fetchUserData: Usuário não logado.")
@@ -294,7 +294,7 @@ class FirebaseRepository {
             .addOnSuccessListener { document ->
                 if (document != null && document.exists()) {
                     try {
-                        val user = document.toObject(User::class.java)
+                    val user = document.toObject(User::class.java)
                         user?.let {
                             // Garante que o ID seja sempre definido com o ID do documento
                             it.id = document.id
@@ -319,7 +319,7 @@ class FirebaseRepository {
             }
     }
 
-    fun saveNotificationToHistory(userId: String, notificationEntry: NotificationHistoryEntry, onComplete: (Boolean, Exception?) -> Unit) {
+        fun saveNotificationToHistory(userId: String, notificationEntry: NotificationHistoryEntry, onComplete: (Boolean, Exception?) -> Unit) {
         Log.d(TAG, "[saveNotificationToHistory] Início. userId: $userId, notificationEntry: $notificationEntry")
         if (userId.isEmpty()) {
             Log.w(TAG, "[saveNotificationToHistory] userId está vazio.")
@@ -334,7 +334,7 @@ class FirebaseRepository {
         } else {
             notificationEntry
         }
-
+        
         Log.d(TAG, "[saveNotificationToHistory] Salvando notificação com ID: $entryId")
 
         firestore.collection(USERS_COLLECTION).document(userId)
@@ -382,7 +382,7 @@ class FirebaseRepository {
             }
     }
 
-    fun saveRoute(userId: String, route: Route, onComplete: (String?, Exception?) -> Unit) {
+        fun saveRoute(userId: String, route: Route, onComplete: (String?, Exception?) -> Unit) {
         if (userId.isEmpty()) {
             Log.w(TAG, "saveRoute: userId está vazio.")
             onComplete(null, IllegalArgumentException("ID do usuário não fornecido."))
@@ -414,18 +414,18 @@ class FirebaseRepository {
 
         task.addOnSuccessListener { savedRouteId ->
             Log.d(TAG, "Rota (ID: $savedRouteId) salva com sucesso para o usuário $userId.")
-
+            
             // Se a rota tem um targetUserId diferente do userId (responsável), 
             // também salvar na coleção do membro da família
             val targetUserId = route.targetUserId
-
+            
             Log.d(TAG, "saveRoute: Verificando targetUserId. Novo valor: $targetUserId, userId atual: $userId")
-
-            // Se a rota já existe, primeiro buscar o targetUserId anterior para removê-lo
-            if (!route.id.isNullOrEmpty()) {
+                
+                // Se a rota já existe, primeiro buscar o targetUserId anterior para removê-lo
+                if (!route.id.isNullOrEmpty()) {
                 Log.d(TAG, "saveRoute: Rota existente, buscando targetUserId anterior...")
                 Log.d(TAG, "saveRoute: Buscando documento na coleção do usuário $userId, rota ID: ${route.id}")
-
+                
                 // Buscar a rota em todas as coleções de usuários para obter o targetUserId correto
                 firestore.collection(USERS_COLLECTION)
                     .get()
@@ -434,9 +434,9 @@ class FirebaseRepository {
                         var foundInUserId: String? = null
                         var completedSearches = 0
                         val totalUsers = usersSnapshot.documents.size
-
+                        
                         Log.d(TAG, "saveRoute: Buscando rota em $totalUsers usuários")
-
+                        
                         for (userDoc in usersSnapshot.documents) {
                             firestore.collection(USERS_COLLECTION)
                                 .document(userDoc.id)
@@ -458,7 +458,7 @@ class FirebaseRepository {
                                             Log.e(TAG, "saveRoute: Erro ao converter documento para Route", e)
                                         }
                                     }
-
+                                    
                                     completedSearches++
                                     if (completedSearches == totalUsers) {
                                         // Todas as buscas foram concluídas
@@ -482,28 +482,28 @@ class FirebaseRepository {
                         if (normalizedCurrent != null && normalizedCurrent != userId) {
                             Log.d(TAG, "saveRoute: Erro na busca, salvando rota no usuário $normalizedCurrent")
                             saveRouteInMemberCollection(normalizedCurrent, route, savedRouteId, onComplete)
-                        } else {
+                                } else {
                             Log.d(TAG, "saveRoute: Erro na busca, targetUserId é null/vazio ou igual ao userId. Não salvando em coleção de membro.")
-                            onComplete(savedRouteId, null)
+                                    onComplete(savedRouteId, null)
                         }
-                    }
-            } else {
+                                }
+                            } else {
                 // Nova rota, salvar no usuário se necessário
                 Log.d(TAG, "saveRoute: Nova rota, verificando se deve salvar em coleção de membro")
                 val normalizedCurrent = if (targetUserId.isNullOrEmpty()) null else targetUserId
                 if (normalizedCurrent != null && normalizedCurrent != userId) {
                     Log.d(TAG, "saveRoute: Salvando nova rota no usuário $normalizedCurrent")
                     saveRouteInMemberCollection(normalizedCurrent, route, savedRouteId, onComplete)
-                } else {
+                                } else {
                     Log.d(TAG, "saveRoute: Nova rota - targetUserId é null/vazio ou igual ao userId. Não salvando em coleção de membro.")
-                    onComplete(savedRouteId, null)
-                }
-            }
+                                    onComplete(savedRouteId, null)
+                                }
+                            }
+                        }
+                        .addOnFailureListener { e ->
+            Log.e(TAG, "Erro ao salvar rota '${route.name}' para o usuário $userId", e)
+            onComplete(null, e)
         }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Erro ao salvar rota '${route.name}' para o usuário $userId", e)
-                onComplete(null, e)
-            }
     }
 
     /**
@@ -518,30 +518,30 @@ class FirebaseRepository {
         onComplete: (String?, Exception?) -> Unit
     ) {
         val targetUserId = newRoute.targetUserId
-
+        
         if (foundRoute != null) {
             val previousTargetUserId = foundRoute.targetUserId
-
+            
             Log.d(TAG, "processRouteUpdate: Rota encontrada:")
             Log.d(TAG, "  - Encontrada no usuário: $foundInUserId")
             Log.d(TAG, "  - targetUserId anterior: $previousTargetUserId")
             Log.d(TAG, "  - targetUserId novo: $targetUserId")
             Log.d(TAG, "  - userId atual: $currentUserId")
-
+            
             // Verificar se houve mudança no targetUserId
             // Tratar null e string vazia como equivalentes
             val normalizedPrevious = if (previousTargetUserId.isNullOrEmpty()) null else previousTargetUserId
             val normalizedCurrent = if (targetUserId.isNullOrEmpty()) null else targetUserId
             val targetUserIdChanged = normalizedPrevious != normalizedCurrent
-
+            
             Log.d(TAG, "processRouteUpdate: Comparação normalizada - anterior: $normalizedPrevious, atual: $normalizedCurrent, mudou: $targetUserIdChanged")
-
+            
             if (targetUserIdChanged && normalizedPrevious != null && normalizedPrevious != currentUserId) {
                 Log.d(TAG, "processRouteUpdate: targetUserId mudou de $normalizedPrevious para $normalizedCurrent. Removendo do usuário anterior.")
                 removeRouteFromUser(normalizedPrevious, savedRouteId) { success, exception ->
                     if (!success) {
                         Log.w(TAG, "Aviso: Não foi possível remover rota do usuário anterior $normalizedPrevious")
-                    } else {
+                } else {
                         Log.d(TAG, "processRouteUpdate: Rota removida com sucesso do usuário anterior $normalizedPrevious")
                     }
                     // Após remover do usuário anterior, salvar no novo usuário se necessário
@@ -560,7 +560,7 @@ class FirebaseRepository {
             } else {
                 // targetUserId é null, vazio ou igual ao userId - não salvar em coleção de membro
                 Log.d(TAG, "processRouteUpdate: targetUserId é null/vazio ou igual ao userId. Não salvando em coleção de membro.")
-                onComplete(savedRouteId, null)
+            onComplete(savedRouteId, null)
             }
         } else {
             Log.w(TAG, "processRouteUpdate: Rota não encontrada em nenhuma coleção, tratando como nova")
@@ -582,12 +582,12 @@ class FirebaseRepository {
     private fun saveRouteInMemberCollection(targetUserId: String, route: Route, routeId: String, onComplete: (String?, Exception?) -> Unit) {
         val memberRoutesCollection = firestore.collection(USERS_COLLECTION).document(targetUserId)
             .collection(ROUTES_COLLECTION)
-
+        
         val memberRouteToSave = route.copy(
             id = routeId, // Usar o mesmo ID para manter consistência
             updatedAt = java.util.Date()
         )
-
+        
         memberRoutesCollection.document(routeId).set(memberRouteToSave, SetOptions.merge())
             .addOnSuccessListener {
                 Log.d(TAG, "Rota (ID: $routeId) também salva na coleção do membro $targetUserId")
@@ -613,9 +613,9 @@ class FirebaseRepository {
             .addOnSuccessListener { documents ->
                 val routesList = documents.mapNotNull { document ->
                     try {
-                        document.toObject(Route::class.java)?.apply {
+                    document.toObject(Route::class.java)?.apply {
                             // Garante que o ID seja sempre definido com o ID do documento
-                            this.id = document.id
+                        this.id = document.id
                         }?.also { route ->
                             // Log detalhado de cada rota carregada
                             Log.d(TAG, "getUserRoutes: Rota carregada '${route.name}' (ID: ${route.id}):")
@@ -647,9 +647,9 @@ class FirebaseRepository {
             onComplete(null, IllegalArgumentException("targetUserId ou familyId está vazio."))
             return
         }
-
+        
         Log.d(TAG, "Buscando rotas para membro da família: $targetUserId na família: $familyId")
-
+        
         // Primeiro, buscar todos os usuários da família
         firestore.collection(USERS_COLLECTION)
             .whereEqualTo("familyId", familyId)
@@ -657,18 +657,18 @@ class FirebaseRepository {
             .addOnSuccessListener { userSnapshot ->
                 val familyUserIds = userSnapshot.documents.mapNotNull { it.id }
                 Log.d(TAG, "Usuários da família encontrados: $familyUserIds")
-
+                
                 if (familyUserIds.isEmpty()) {
                     Log.w(TAG, "Nenhum usuário encontrado na família $familyId")
                     onComplete(emptyList(), null)
                     return@addOnSuccessListener
                 }
-
+                
                 // Buscar rotas em todas as coleções de usuários da família
                 val allRoutes = mutableListOf<Route>()
                 var completedQueries = 0
                 val totalQueries = familyUserIds.size
-
+                
                 familyUserIds.forEach { userId ->
                     firestore.collection(USERS_COLLECTION).document(userId)
                         .collection(ROUTES_COLLECTION)
@@ -692,7 +692,7 @@ class FirebaseRepository {
                                 }
                             }
                             allRoutes.addAll(userRoutes)
-
+                            
                             completedQueries++
                             if (completedQueries == totalQueries) {
                                 // Todas as consultas foram concluídas
@@ -733,22 +733,22 @@ class FirebaseRepository {
             .addOnSuccessListener { document ->
                 if (document != null && document.exists()) {
                     try {
-                        val route = document.toObject(Route::class.java)?.apply {
+                    val route = document.toObject(Route::class.java)?.apply {
                             // Garante que o ID seja sempre definido com o ID do documento
-                            this.id = document.id
-                        }
-                        if (route != null) {
-                            Log.d(
-                                TAG,
-                                "Rota (ID: $routeId) obtida para o usuário $userId: ${route.name}"
-                            )
-                            onComplete(route, null)
-                        } else {
-                            Log.w(
-                                TAG,
-                                "Falha ao converter documento para Rota. ID: $routeId, Usuário: $userId. Documento: ${document.data}"
-                            )
-                            onComplete(null, Exception("Falha ao converter dados da rota."))
+                        this.id = document.id
+                    }
+                    if (route != null) {
+                        Log.d(
+                            TAG,
+                            "Rota (ID: $routeId) obtida para o usuário $userId: ${route.name}"
+                        )
+                        onComplete(route, null)
+                    } else {
+                        Log.w(
+                            TAG,
+                            "Falha ao converter documento para Rota. ID: $routeId, Usuário: $userId. Documento: ${document.data}"
+                        )
+                        onComplete(null, Exception("Falha ao converter dados da rota."))
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Erro ao converter documento para Route", e)
@@ -780,9 +780,9 @@ class FirebaseRepository {
                 var foundInUserId: String? = null
                 var completedSearches = 0
                 val totalUsers = usersSnapshot.documents.size
-
+                
                 Log.d(TAG, "deleteRoute: Buscando rota em $totalUsers usuários")
-
+                
                 for (userDoc in usersSnapshot.documents) {
                     firestore.collection(USERS_COLLECTION)
                         .document(userDoc.id)
@@ -804,7 +804,7 @@ class FirebaseRepository {
                                     Log.e(TAG, "deleteRoute: Erro ao converter documento para Route", e)
                                 }
                             }
-
+                            
                             completedSearches++
                             if (completedSearches == totalUsers) {
                                 // Todas as buscas foram concluídas
@@ -844,64 +844,64 @@ class FirebaseRepository {
 
         val targetUserId = foundRoute.targetUserId
         val createdByUserId = foundRoute.createdByUserId
-
+        
         Log.d(TAG, "deleteRouteFromAllCollections: Deletando rota de todas as coleções:")
         Log.d(TAG, "  - Encontrada no usuário: $foundInUserId")
         Log.d(TAG, "  - targetUserId: $targetUserId")
         Log.d(TAG, "  - createdByUserId: $createdByUserId")
-
+        
         // Lista de usuários de onde deletar a rota
         val usersToDeleteFrom = mutableListOf<String>()
-
+        
         // Sempre deletar do responsável (createdByUserId)
         if (createdByUserId.isNotEmpty()) {
             usersToDeleteFrom.add(createdByUserId)
             Log.d(TAG, "deleteRouteFromAllCollections: Adicionando responsável $createdByUserId à lista de exclusão")
         }
-
+        
         // Se tem targetUserId e é diferente do createdByUserId, adicionar à lista
         if (!targetUserId.isNullOrEmpty() && targetUserId != createdByUserId) {
             usersToDeleteFrom.add(targetUserId)
             Log.d(TAG, "deleteRouteFromAllCollections: Adicionando membro $targetUserId à lista de exclusão")
         }
-
+        
         // Deletar de todas as coleções
         var completedDeletions = 0
         val totalDeletions = usersToDeleteFrom.size
         var hasError = false
         var lastError: Exception? = null
-
+        
         usersToDeleteFrom.forEach { deleteUserId ->
             firestore.collection(USERS_COLLECTION).document(deleteUserId)
                 .collection(ROUTES_COLLECTION)
                 .document(routeId)
-                .delete()
-                .addOnSuccessListener {
+            .delete()
+            .addOnSuccessListener {
                     Log.d(TAG, "deleteRouteFromAllCollections: Rota $routeId deletada com sucesso do usuário $deleteUserId")
                     completedDeletions++
-
+                    
                     if (completedDeletions == totalDeletions) {
                         if (hasError) {
                             Log.w(TAG, "deleteRouteFromAllCollections: Algumas exclusões falharam, mas a operação foi concluída")
                             onComplete(false, lastError)
                         } else {
                             Log.d(TAG, "deleteRouteFromAllCollections: Todas as exclusões foram concluídas com sucesso")
-                            onComplete(true, null)
+                onComplete(true, null)
                         }
                     }
-                }
-                .addOnFailureListener { e ->
+            }
+            .addOnFailureListener { e ->
                     Log.e(TAG, "deleteRouteFromAllCollections: Erro ao deletar rota $routeId do usuário $deleteUserId", e)
                     hasError = true
                     lastError = e
                     completedDeletions++
-
+                    
                     if (completedDeletions == totalDeletions) {
                         Log.w(TAG, "deleteRouteFromAllCollections: Algumas exclusões falharam, mas a operação foi concluída")
                         onComplete(false, lastError)
                     }
                 }
-        }
+            }
     }
 
     /**
@@ -914,9 +914,9 @@ class FirebaseRepository {
             onComplete(false, IllegalArgumentException("userId ou routeId está vazio."))
             return
         }
-
+        
         Log.d(TAG, "Removendo rota (ID: $routeId) da coleção do usuário $userId")
-
+        
         firestore.collection(USERS_COLLECTION).document(userId)
             .collection(ROUTES_COLLECTION).document(routeId)
             .delete()
@@ -957,7 +957,7 @@ class FirebaseRepository {
         // Gera um ID se não existir
         val familyId = family.id ?: UUID.randomUUID().toString()
         val familyToSave = family.copy(id = familyId)
-
+        
         firestore.collection(FAMILIES_COLLECTION).document(familyId)
             .set(familyToSave)
             .addOnSuccessListener {
@@ -978,19 +978,19 @@ class FirebaseRepository {
 
     fun getFamilyInvitesForUser(email: String, callback: (List<FamilyInvite>?, Exception?) -> Unit) {
         Log.d(TAG, "Buscando convites para email: $email")
-
+        
         if (email.isEmpty()) {
             Log.w(TAG, "Email está vazio, retornando lista vazia")
             callback(emptyList(), null)
             return
         }
-
+        
         firestore.collection(INVITES_COLLECTION)
             .whereEqualTo("recipientEmail", email)
             .get()
             .addOnSuccessListener { result ->
                 Log.d(TAG, "Consulta de convites executada. Documentos encontrados: ${result.size()}")
-
+                
                 val invites = result.documents.mapNotNull { document ->
                     try {
                         Log.d(TAG, "Processando documento de convite: ${document.id}")
@@ -1023,12 +1023,12 @@ class FirebaseRepository {
                     // Garante que o ID seja sempre definido com o ID do documento
                     this.id = familyDoc.id
                 }
-                if (family == null) {
-                    callback(null, null, Exception("Família não encontrada"))
-                    return@addOnSuccessListener
-                }
+            if (family == null) {
+                callback(null, null, Exception("Família não encontrada"))
+                return@addOnSuccessListener
+            }
 
-                usersRef.get().addOnSuccessListener { userSnapshot ->
+            usersRef.get().addOnSuccessListener { userSnapshot ->
                     val members = userSnapshot.documents.mapNotNull { document ->
                         try {
                             document.toObject(User::class.java)?.apply {
@@ -1039,10 +1039,10 @@ class FirebaseRepository {
                             Log.e(TAG, "Erro ao converter documento para User na família $familyId", e)
                             null
                         }
-                    }
-                    callback(family, members, null)
-                }.addOnFailureListener { e ->
-                    callback(family, null, e)
+                }
+                callback(family, members, null)
+            }.addOnFailureListener { e ->
+                callback(family, null, e)
                 }
 
             } catch (e: Exception) {
@@ -1061,7 +1061,7 @@ class FirebaseRepository {
         callback: (Boolean, String?) -> Unit
     ) {
         Log.d(TAG, "Enviando convite para: $recipientEmail, família: ${invite.familyName}")
-
+        
         val usersCollection = firestore.collection(USERS_COLLECTION)
 
         // Verifica se o e-mail existe na base de usuários
@@ -1069,7 +1069,7 @@ class FirebaseRepository {
             .get()
             .addOnSuccessListener { querySnapshot ->
                 Log.d(TAG, "Verificação de email: ${querySnapshot.size()} usuários encontrados para $recipientEmail")
-
+                
                 if (querySnapshot.isEmpty) {
                     Log.w(TAG, "Email não encontrado: $recipientEmail")
                     callback(false, "E-mail não cadastrado no sistema.")
@@ -1080,7 +1080,7 @@ class FirebaseRepository {
                         id = inviteId,
                         recipientEmail = recipientEmail
                     )
-
+                    
                     Log.d(TAG, "Criando convite com ID: $inviteId")
 
                     firestore.collection(INVITES_COLLECTION)
@@ -1101,7 +1101,6 @@ class FirebaseRepository {
                 callback(false, "Erro ao verificar usuário: ${e.message}")
             }
     }
-
 
     fun acceptFamilyInvite(userId: String, familyId: String, inviteId: String, callback: (Boolean, String?) -> Unit) {
         if (inviteId.isNullOrEmpty()) {
@@ -1217,153 +1216,6 @@ class FirebaseRepository {
         }
     }
 
-    // ==================== FUNÇÕES DE GEOFENCE ====================
-
-    /**
-     * Salva uma geofence (criar ou atualizar)
-     */
-    fun saveGeofence(userId: String, geofence: Geofence, callback: (String?, Exception?) -> Unit) {
-        if (userId.isEmpty()) {
-            Log.w(TAG, "saveGeofence: userId está vazio.")
-            callback(null, IllegalArgumentException("userId está vazio."))
-            return
-        }
-
-        val geofenceId = geofence.id ?: UUID.randomUUID().toString()
-        val geofenceToSave = geofence.copy(id = geofenceId)
-
-        val geofencesCollection = firestore.collection(USERS_COLLECTION).document(userId)
-            .collection(GEOFENCES_COLLECTION)
-
-        val task = if (geofence.id.isNullOrEmpty()) {
-            // Nova geofence
-            Log.d(TAG, "saveGeofence: Criando nova geofence com ID: $geofenceId")
-            geofencesCollection.document(geofenceId).set(geofenceToSave).continueWith { geofenceId }
-        } else {
-            // Geofence existente
-            Log.d(TAG, "saveGeofence: Atualizando geofence existente com ID: ${geofenceToSave.id}")
-            Log.d(TAG, "saveGeofence: Usando SetOptions.merge() para preservar campos existentes")
-            geofencesCollection.document(geofence.id!!).set(geofenceToSave, SetOptions.merge()).continueWith { geofence.id!! }
-        }
-
-        task.addOnSuccessListener { savedGeofenceId ->
-            Log.d(TAG, "Geofence (ID: $savedGeofenceId) salva com sucesso para o usuário $userId.")
-
-            // Se a geofence tem um targetUserId diferente do userId (responsável),
-            // também salvar na coleção do membro da família
-            val targetUserId = geofence.targetUserId
-
-            Log.d(TAG, "saveGeofence: Verificando targetUserId. Novo valor: $targetUserId, userId atual: $userId")
-
-            // Se a geofence já existe, primeiro buscar o targetUserId anterior para removê-lo
-            if (!geofence.id.isNullOrEmpty()) {
-                Log.d(TAG, "saveGeofence: Geofence existente, buscando targetUserId anterior...")
-                Log.d(TAG, "saveGeofence: Buscando documento na coleção do usuário $userId, geofence ID: ${geofence.id}")
-
-                // Buscar a geofence em todas as coleções de usuários para obter o targetUserId correto
-                firestore.collection(USERS_COLLECTION)
-                    .get()
-                    .addOnSuccessListener { usersSnapshot ->
-                        var foundGeofence: Geofence? = null
-                        var foundInUserId: String? = null
-                        var completedSearches = 0
-                        val totalUsers = usersSnapshot.documents.size
-
-                        Log.d(TAG, "saveGeofence: Buscando geofence em $totalUsers usuários")
-
-                        for (userDoc in usersSnapshot.documents) {
-                            firestore.collection(USERS_COLLECTION)
-                                .document(userDoc.id)
-                                .collection(GEOFENCES_COLLECTION)
-                                .document(geofence.id!!)
-                                .get()
-                                .addOnSuccessListener { geofenceDoc ->
-                                    if (geofenceDoc.exists() && foundGeofence == null) {
-                                        try {
-                                            val foundGeofenceData = geofenceDoc.toObject(Geofence::class.java)
-                                            if (foundGeofenceData != null) {
-                                                foundGeofence = foundGeofenceData
-                                                foundInUserId = userDoc.id
-                                                Log.d(TAG, "saveGeofence: Geofence encontrada no usuário ${userDoc.id}")
-                                                Log.d(TAG, "  - targetUserId: ${foundGeofenceData.targetUserId}")
-                                                Log.d(TAG, "  - createdByUserId: ${foundGeofenceData.createdByUserId}")
-                                            }
-                                        } catch (e: Exception) {
-                                            Log.e(TAG, "saveGeofence: Erro ao converter documento para Geofence", e)
-                                        }
-                                    }
-
-                                    completedSearches++
-                                    if (completedSearches == totalUsers) {
-                                        // Todas as buscas foram concluídas
-                                        processGeofenceUpdate(foundGeofence, foundInUserId, geofence, savedGeofenceId, userId, callback)
-                                    }
-                                }
-                                .addOnFailureListener { e ->
-                                    Log.e(TAG, "saveGeofence: Erro ao buscar geofence no usuário ${userDoc.id}", e)
-                                    completedSearches++
-                                    if (completedSearches == totalUsers) {
-                                        // Todas as buscas foram concluídas
-                                        processGeofenceUpdate(foundGeofence, foundInUserId, geofence, savedGeofenceId, userId, callback)
-                                    }
-                                }
-                        }
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e(TAG, "saveGeofence: Erro ao buscar usuários", e)
-                        // Em caso de erro, tentar salvar no novo usuário se necessário
-                        val normalizedCurrent = if (targetUserId.isNullOrEmpty()) null else targetUserId
-                        if (normalizedCurrent != null && normalizedCurrent != userId) {
-                            Log.d(TAG, "saveGeofence: Erro na busca, salvando geofence no usuário $normalizedCurrent")
-                            saveGeofenceInMemberCollection(normalizedCurrent, geofence, savedGeofenceId, callback)
-                        } else {
-                            Log.d(TAG, "saveGeofence: Erro na busca, targetUserId é null/vazio ou igual ao userId. Não salvando em coleção de membro.")
-                            callback(savedGeofenceId, null)
-                        }
-                    }
-            } else {
-                // Nova geofence, salvar no usuário se necessário
-                Log.d(TAG, "saveGeofence: Nova geofence, verificando se deve salvar em coleção de membro")
-                val normalizedCurrent = if (targetUserId.isNullOrEmpty()) null else targetUserId
-                if (normalizedCurrent != null && normalizedCurrent != userId) {
-                    Log.d(TAG, "saveGeofence: Salvando nova geofence no usuário $normalizedCurrent")
-                    saveGeofenceInMemberCollection(normalizedCurrent, geofence, savedGeofenceId, callback)
-                } else {
-                    Log.d(TAG, "saveGeofence: Nova geofence - targetUserId é null/vazio ou igual ao userId. Não salvando em coleção de membro.")
-                    callback(savedGeofenceId, null)
-                }
-            }
-        }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Erro ao salvar geofence '${geofence.name}' para o usuário $userId", e)
-                callback(null, e)
-            }
-    }
-
-    /**
-     * Método auxiliar para salvar geofence na coleção do membro da família
-     */
-    private fun saveGeofenceInMemberCollection(targetUserId: String, geofence: Geofence, geofenceId: String, onComplete: (String?, Exception?) -> Unit) {
-        val memberGeofencesCollection = firestore.collection(USERS_COLLECTION).document(targetUserId)
-            .collection(GEOFENCES_COLLECTION)
-
-        val memberGeofenceToSave = geofence.copy(
-            id = geofenceId, // Usar o mesmo ID para manter consistência
-            updatedAt = java.util.Date()
-        )
-
-        memberGeofencesCollection.document(geofenceId).set(memberGeofenceToSave, SetOptions.merge())
-            .addOnSuccessListener {
-                Log.d(TAG, "Geofence (ID: $geofenceId) também salva na coleção do membro $targetUserId")
-                onComplete(geofenceId, null)
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Erro ao salvar geofence na coleção do membro $targetUserId", e)
-                // Mesmo com erro, a geofence foi salva na coleção do responsável
-                onComplete(geofenceId, e)
-            }
-    }
-
     /**
      * Método auxiliar para remover geofence de um usuário
      */
@@ -1394,24 +1246,24 @@ class FirebaseRepository {
         callback: (String?, Exception?) -> Unit
     ) {
         val targetUserId = newGeofence.targetUserId
-
+        
         if (foundGeofence != null) {
             val previousTargetUserId = foundGeofence.targetUserId
-
+            
             Log.d(TAG, "processGeofenceUpdate: Geofence encontrada:")
             Log.d(TAG, "  - Encontrada no usuário: $foundInUserId")
             Log.d(TAG, "  - targetUserId anterior: $previousTargetUserId")
             Log.d(TAG, "  - targetUserId novo: $targetUserId")
             Log.d(TAG, "  - userId atual: $currentUserId")
-
+            
             // Verificar se houve mudança no targetUserId
             // Tratar null e string vazia como equivalentes
             val normalizedPrevious = if (previousTargetUserId.isNullOrEmpty()) null else previousTargetUserId
             val normalizedCurrent = if (targetUserId.isNullOrEmpty()) null else targetUserId
             val targetUserIdChanged = normalizedPrevious != normalizedCurrent
-
+            
             Log.d(TAG, "processGeofenceUpdate: Comparação normalizada - anterior: $normalizedPrevious, atual: $normalizedCurrent, mudou: $targetUserIdChanged")
-
+            
             if (targetUserIdChanged && normalizedPrevious != null && normalizedPrevious != currentUserId) {
                 Log.d(TAG, "processGeofenceUpdate: targetUserId mudou de $normalizedPrevious para $normalizedCurrent. Removendo do usuário anterior.")
                 removeGeofenceFromUser(normalizedPrevious, savedGeofenceId) { success, exception ->
@@ -1461,7 +1313,7 @@ class FirebaseRepository {
             callback(null, IllegalArgumentException("userId está vazio."))
             return
         }
-
+        
         // Primeiro, buscar o usuário para verificar se tem família
         firestore.collection(USERS_COLLECTION).document(userId)
             .get()
@@ -1470,7 +1322,7 @@ class FirebaseRepository {
                     val user = userDoc.toObject(User::class.java)
                     val familyId = user?.familyId
                     val userType = user?.type
-
+                    
                     if (userType == "responsavel" && !familyId.isNullOrEmpty()) {
                         // Responsável: buscar geofences na própria coleção
                         firestore.collection(USERS_COLLECTION).document(userId)
@@ -1544,7 +1396,7 @@ class FirebaseRepository {
      */
     private fun getGeofencesForFamilyMember(targetUserId: String, familyId: String, onComplete: (List<Geofence>?, Exception?) -> Unit) {
         Log.d(TAG, "Buscando geofences para membro da família: $targetUserId na família: $familyId")
-
+        
         // Primeiro, buscar todos os usuários da família
         firestore.collection(USERS_COLLECTION)
             .whereEqualTo("familyId", familyId)
@@ -1552,18 +1404,18 @@ class FirebaseRepository {
             .addOnSuccessListener { userSnapshot ->
                 val familyUserIds = userSnapshot.documents.mapNotNull { it.id }
                 Log.d(TAG, "Usuários da família encontrados: $familyUserIds")
-
+                
                 if (familyUserIds.isEmpty()) {
                     Log.w(TAG, "Nenhum usuário encontrado na família $familyId")
                     onComplete(emptyList(), null)
                     return@addOnSuccessListener
                 }
-
+                
                 // Buscar geofences em todas as coleções de usuários da família
                 val allGeofences = mutableListOf<Geofence>()
                 var completedQueries = 0
                 val totalQueries = familyUserIds.size
-
+                
                 familyUserIds.forEach { userId ->
                     firestore.collection(USERS_COLLECTION).document(userId)
                         .collection(GEOFENCES_COLLECTION)
@@ -1586,7 +1438,7 @@ class FirebaseRepository {
                                 }
                             }
                             allGeofences.addAll(userGeofences)
-
+                            
                             completedQueries++
                             if (completedQueries == totalQueries) {
                                 // Todas as consultas foram concluídas
@@ -1656,7 +1508,7 @@ class FirebaseRepository {
                             }
                     }
                 }
-
+                
                 // Se não encontrou em nenhum usuário
                 if (!found) {
                     callback(null, null)
@@ -1691,12 +1543,12 @@ class FirebaseRepository {
                 callback(Exception("Geofence não encontrada em nenhuma coleção"))
                 return
             }
-
+            
             var completedDeletions = 0
             val totalDeletions = usersToDeleteFrom.size
             var hasError = false
             var lastError: Exception? = null
-
+            
             usersToDeleteFrom.forEach { deleteUserId ->
                 firestore.collection(USERS_COLLECTION).document(deleteUserId)
                     .collection(GEOFENCES_COLLECTION)
@@ -1705,7 +1557,7 @@ class FirebaseRepository {
                     .addOnSuccessListener {
                         Log.d(TAG, "deleteGeofence: Geofence $geofenceId deletada com sucesso do usuário $deleteUserId")
                         completedDeletions++
-
+                        
                         if (completedDeletions == totalDeletions) {
                             if (hasError) {
                                 Log.w(TAG, "deleteGeofence: Algumas exclusões falharam, mas a operação foi concluída")
@@ -1721,7 +1573,7 @@ class FirebaseRepository {
                         hasError = true
                         lastError = e
                         completedDeletions++
-
+                        
                         if (completedDeletions == totalDeletions) {
                             Log.w(TAG, "deleteGeofence: Algumas exclusões falharam, mas a operação foi concluída")
                             callback(lastError)
@@ -1740,18 +1592,18 @@ class FirebaseRepository {
                     try {
                         val geofence = document.toObject(Geofence::class.java)
                         val targetUserId = geofence?.targetUserId
-
+                        
                         Log.d(TAG, "deleteGeofence: Geofence encontrada na coleção do usuário $userId. targetUserId: $targetUserId")
-
+                        
                         // Lista de usuários de onde deletar a geofence
                         val usersToDeleteFrom = mutableListOf(userId)
-
+                        
                         // Se tem targetUserId e é diferente do userId, adicionar à lista
                         if (!targetUserId.isNullOrEmpty() && targetUserId != userId) {
                             usersToDeleteFrom.add(targetUserId)
                             Log.d(TAG, "deleteGeofence: Adicionando $targetUserId à lista de exclusão")
                         }
-
+                        
                         deleteFromUsers(usersToDeleteFrom)
                     } catch (e: Exception) {
                         Log.e(TAG, "deleteGeofence: Erro ao converter documento para Geofence", e)
@@ -1759,7 +1611,7 @@ class FirebaseRepository {
                     }
                 } else {
                     Log.w(TAG, "deleteGeofence: Geofence $geofenceId não encontrada na coleção do usuário $userId. Buscando em outras coleções...")
-
+                    
                     // Buscar em todas as coleções de usuários
                     firestore.collection(USERS_COLLECTION)
                         .get()
@@ -1767,13 +1619,13 @@ class FirebaseRepository {
                             val usersToDeleteFrom = mutableListOf<String>()
                             var completedSearches = 0
                             val totalUsers = usersSnapshot.documents.size
-
+                            
                             if (totalUsers == 0) {
                                 Log.w(TAG, "deleteGeofence: Nenhum usuário encontrado")
                                 callback(Exception("Nenhum usuário encontrado"))
                                 return@addOnSuccessListener
                             }
-
+                            
                             for (userDoc in usersSnapshot.documents) {
                                 firestore.collection(USERS_COLLECTION)
                                     .document(userDoc.id)
@@ -1785,7 +1637,7 @@ class FirebaseRepository {
                                             usersToDeleteFrom.add(userDoc.id)
                                             Log.d(TAG, "deleteGeofence: Geofence encontrada na coleção do usuário ${userDoc.id}")
                                         }
-
+                                        
                                         completedSearches++
                                         if (completedSearches == totalUsers) {
                                             if (usersToDeleteFrom.isNotEmpty()) {
@@ -1861,7 +1713,7 @@ class FirebaseRepository {
                                 }
                             }
                             allGeofences.addAll(userGeofences)
-
+                            
                             completedQueries++
                             if (completedQueries == totalUsers) {
                                 Log.d(TAG, "Geofences ativas encontradas para o usuário $targetUserId: ${allGeofences.size}")
@@ -1880,14 +1732,14 @@ class FirebaseRepository {
             .addOnFailureListener { e ->
                 Log.e(TAG, "Erro ao buscar usuários para geofences ativas", e)
                 callback(null, e)
-            }
+        }
     }
 
     // Métodos para relacionamentos familiares
     fun saveFamilyRelationship(relationship: FamilyRelationship, onComplete: (Boolean, Exception?) -> Unit) {
         val relationshipId = relationship.id ?: UUID.randomUUID().toString()
         val relationshipToSave = relationship.copy(id = relationshipId)
-
+        
         firestore.collection(FAMILY_RELATIONSHIPS_COLLECTION)
             .document(relationshipId)
             .set(relationshipToSave)
@@ -1928,104 +1780,32 @@ class FirebaseRepository {
 
     fun getResponsibleForDependent(dependentId: String, onComplete: (FamilyRelationship?, Exception?) -> Unit) {
         Log.d(TAG, "[getResponsibleForDependent] Buscando responsável para dependente: $dependentId")
-        
-        // Primeiro, verificar se o dependente existe e tem familyId
-        firestore.collection(USERS_COLLECTION).document(dependentId)
+        firestore.collection(FAMILY_RELATIONSHIPS_COLLECTION)
+            .whereEqualTo("dependentId", dependentId)
+            .whereEqualTo("isActive", true)
+            .limit(1)
             .get()
-            .addOnSuccessListener { userDoc ->
-                val user = userDoc.toObject(User::class.java)
-                if (user == null) {
-                    Log.e(TAG, "[getResponsibleForDependent] Usuário dependente não encontrado: $dependentId")
-                    onComplete(null, Exception("Usuário dependente não encontrado"))
-                    return@addOnSuccessListener
-                }
-                
-                Log.d(TAG, "[getResponsibleForDependent] Dados do dependente: name=${user.name}, familyId=${user.familyId}, type=${user.type}")
-                
-                if (user.familyId.isNullOrEmpty()) {
-                    Log.w(TAG, "[getResponsibleForDependent] Dependente $dependentId não tem familyId")
-                    onComplete(null, null)
-                    return@addOnSuccessListener
-                }
-                
-                // Buscar na coleção de relacionamentos
-                firestore.collection(FAMILY_RELATIONSHIPS_COLLECTION)
-                    .whereEqualTo("dependentId", dependentId)
-                    .whereEqualTo("isActive", true)
-                    .limit(1)
-                    .get()
-                    .addOnSuccessListener { documents ->
-                        Log.d(TAG, "[getResponsibleForDependent] Documentos encontrados na coleção familyRelationships: ${documents.size()}")
-                        
-                        if (documents.isEmpty) {
-                            Log.w(TAG, "[getResponsibleForDependent] Nenhum relacionamento encontrado para dependente $dependentId")
-                            Log.d(TAG, "[getResponsibleForDependent] Tentando buscar responsável diretamente na família...")
-                            
-                            // Fallback: buscar responsável diretamente na família
-                            firestore.collection(USERS_COLLECTION)
-                                .whereEqualTo("familyId", user.familyId)
-                                .whereEqualTo("type", "responsavel")
-                                .limit(1)
-                                .get()
-                                .addOnSuccessListener { responsibleDocs ->
-                                    if (responsibleDocs.isEmpty) {
-                                        Log.w(TAG, "[getResponsibleForDependent] Nenhum responsável encontrado na família ${user.familyId}")
-                                        onComplete(null, null)
-                                    } else {
-                                        val responsible = responsibleDocs.documents[0].toObject(User::class.java)
-                                        Log.d(TAG, "[getResponsibleForDependent] Responsável encontrado diretamente: ${responsible?.name}")
-                                        
-                                        // Criar relacionamento automaticamente
-                                        val relationship = FamilyRelationship(
-                                            dependentId = dependentId,
-                                            responsibleId = responsible?.id ?: "",
-                                            dependentName = user.name ?: "",
-                                            responsibleName = responsible?.name ?: "",
-                                            relationshipType = "parent_child",
-                                            isActive = true
-                                        )
-                                        
-                                        saveFamilyRelationship(relationship) { success, exception ->
-                                            if (success) {
-                                                Log.d(TAG, "[getResponsibleForDependent] Relacionamento criado automaticamente")
-                                                onComplete(relationship, null)
-                                            } else {
-                                                Log.e(TAG, "[getResponsibleForDependent] Erro ao criar relacionamento automaticamente", exception)
-                                                onComplete(null, exception)
-                                            }
-                                        }
-                                    }
-                                }
-                                .addOnFailureListener { e ->
-                                    Log.e(TAG, "[getResponsibleForDependent] Erro ao buscar responsável diretamente", e)
-                                    onComplete(null, e)
-                                }
-                        } else {
-                            val relationship = documents.firstOrNull()?.let { document ->
-                                try {
-                                    document.toObject(FamilyRelationship::class.java)?.apply {
-                                        this.id = document.id
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "[getResponsibleForDependent] Erro ao converter documento para FamilyRelationship", e)
-                                    null
-                                }
-                            }
-                            if (relationship != null) {
-                                Log.d(TAG, "[getResponsibleForDependent] Responsável encontrado: ${relationship.responsibleId} - ${relationship.responsibleName}")
-                            } else {
-                                Log.w(TAG, "[getResponsibleForDependent] Nenhum responsável encontrado para dependente $dependentId")
-                            }
-                            onComplete(relationship, null)
+            .addOnSuccessListener { documents ->
+                Log.d(TAG, "[getResponsibleForDependent] Documentos encontrados: ${documents.size()}")
+                val relationship = documents.firstOrNull()?.let { document ->
+                    try {
+                        document.toObject(FamilyRelationship::class.java)?.apply {
+                            this.id = document.id
                         }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[getResponsibleForDependent] Erro ao converter documento para FamilyRelationship", e)
+                        null
                     }
-                    .addOnFailureListener { e ->
-                        Log.e(TAG, "[getResponsibleForDependent] Erro ao buscar responsável para dependente $dependentId", e)
-                        onComplete(null, e)
-                    }
+                }
+                if (relationship != null) {
+                    Log.d(TAG, "[getResponsibleForDependent] Responsável encontrado: ${relationship.responsibleId} - ${relationship.responsibleName}")
+                } else {
+                    Log.w(TAG, "[getResponsibleForDependent] Nenhum responsável encontrado para dependente $dependentId")
+                }
+                onComplete(relationship, null)
             }
             .addOnFailureListener { e ->
-                Log.e(TAG, "[getResponsibleForDependent] Erro ao buscar usuário dependente $dependentId", e)
+                Log.e(TAG, "[getResponsibleForDependent] Erro ao buscar responsável para dependente $dependentId", e)
                 onComplete(null, e)
             }
     }
@@ -2080,7 +1860,7 @@ class FirebaseRepository {
 
     fun markNotificationAsRead(userId: String, notificationId: String, onComplete: (Boolean, Exception?) -> Unit) {
         Log.d(TAG, "[markNotificationAsRead] Marcando notificação como lida. userId: $userId, notificationId: $notificationId")
-
+        
         if (userId.isEmpty() || notificationId.isEmpty()) {
             Log.w(TAG, "[markNotificationAsRead] userId ou notificationId está vazio.")
             onComplete(false, IllegalArgumentException("userId ou notificationId está vazio."))
@@ -2339,6 +2119,126 @@ class FirebaseRepository {
             .addOnFailureListener { e ->
                 Log.e(TAG, "Erro ao buscar família", e)
                 callback(false, "Erro ao buscar família: ${e.message}")
+            }
+    }
+
+    /**
+     * Método de debug para verificar todos os convites na coleção
+     */
+    fun debugAllInvites(callback: (List<FamilyInvite>?, Exception?) -> Unit) {
+        Log.d(TAG, "DEBUG: Buscando todos os convites na coleção")
+        
+        firestore.collection(INVITES_COLLECTION)
+            .get()
+            .addOnSuccessListener { result ->
+                Log.d(TAG, "DEBUG: Total de convites na coleção: ${result.size()}")
+                
+                val invites = result.documents.mapNotNull { document ->
+                    try {
+                        Log.d(TAG, "DEBUG: Processando convite ID: ${document.id}")
+                        document.toObject(FamilyInvite::class.java)?.apply {
+                            this.id = document.id
+                            Log.d(TAG, "DEBUG: Convite - familyName: $familyName, familyId: $familyId, recipientEmail: $recipientEmail")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "DEBUG: Erro ao converter convite ${document.id}", e)
+                        null
+                    }
+                }
+                
+                Log.d(TAG, "DEBUG: Convites processados: ${invites.size}")
+                callback(invites, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "DEBUG: Erro ao buscar convites", e)
+                callback(null, e)
+            }
+    }
+
+    /**
+     * Método de debug para verificar convites de um email específico
+     */
+    fun debugInvitesForEmail(email: String, callback: (List<FamilyInvite>?, Exception?) -> Unit) {
+        Log.d(TAG, "DEBUG: Buscando convites para email: $email")
+        
+        firestore.collection(INVITES_COLLECTION)
+            .whereEqualTo("recipientEmail", email)
+            .get()
+            .addOnSuccessListener { result ->
+                Log.d(TAG, "DEBUG: Convites encontrados para $email: ${result.size()}")
+                
+                val invites = result.documents.mapNotNull { document ->
+                    try {
+                        Log.d(TAG, "DEBUG: Convite encontrado - ID: ${document.id}")
+                        document.toObject(FamilyInvite::class.java)?.apply {
+                            this.id = document.id
+                            Log.d(TAG, "DEBUG: Detalhes do convite - familyName: $familyName, familyId: $familyId, recipientEmail: $recipientEmail")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "DEBUG: Erro ao converter convite ${document.id}", e)
+                        null
+                    }
+                }
+                
+                callback(invites, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "DEBUG: Erro ao buscar convites para $email", e)
+                callback(null, e)
+            }
+    }
+
+    /**
+     * Método de debug para verificar emails dos usuários
+     */
+    fun debugUserEmails(callback: (List<User>?, Exception?) -> Unit) {
+        Log.d(TAG, "DEBUG: Buscando todos os usuários para verificar emails")
+        
+        firestore.collection(USERS_COLLECTION)
+            .get()
+            .addOnSuccessListener { result ->
+                Log.d(TAG, "DEBUG: Total de usuários na coleção: ${result.size()}")
+                
+                val users = result.documents.mapNotNull { document ->
+                    try {
+                        Log.d(TAG, "DEBUG: Processando usuário ID: ${document.id}")
+                        document.toObject(User::class.java)?.apply {
+                            this.id = document.id
+                            Log.d(TAG, "DEBUG: Usuário - ID: $id, Nome: $name, Email: $email, Tipo: $type, FamilyId: $familyId")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "DEBUG: Erro ao converter usuário ${document.id}", e)
+                        null
+                    }
+                }
+                
+                Log.d(TAG, "DEBUG: Usuários processados: ${users.size}")
+                callback(users, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "DEBUG: Erro ao buscar usuários", e)
+                callback(null, e)
+            }
+    }
+
+    /**
+     * Método para verificar se um email específico existe (case insensitive)
+     */
+    fun checkEmailExists(email: String, callback: (Boolean, String?) -> Unit) {
+        val normalizedEmail = email.trim().lowercase()
+        Log.d(TAG, "DEBUG: Verificando se email existe: $normalizedEmail")
+        
+        firestore.collection(USERS_COLLECTION)
+            .whereEqualTo("email", normalizedEmail)
+            .get()
+            .addOnSuccessListener { result ->
+                val exists = !result.isEmpty
+                Log.d(TAG, "DEBUG: Email $normalizedEmail existe: $exists (${result.size()} resultados)")
+                callback(exists, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "DEBUG: Erro ao verificar email $normalizedEmail", e)
+                callback(false, e.message)
             }
     }
 }

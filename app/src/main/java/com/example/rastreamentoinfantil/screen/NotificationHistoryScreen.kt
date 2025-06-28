@@ -29,6 +29,7 @@ fun NotificationHistoryScreen(
     viewModel: NotificationHistoryViewModel,
     userId: String,
     isResponsible: Boolean = false,
+    familyId: String? = null,
     onNavigateBack: () -> Unit
 ) {
     val notifications by viewModel.notifications.collectAsState()
@@ -50,8 +51,8 @@ fun NotificationHistoryScreen(
     // Estados para filtros
     var showFilterDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(userId) {
-        viewModel.loadNotificationHistory(userId, isResponsible)
+    LaunchedEffect(userId, isResponsible, familyId) {
+        viewModel.loadNotificationHistory(userId, isResponsible, familyId)
     }
 
     Scaffold(
@@ -186,6 +187,7 @@ fun NotificationHistoryScreen(
                 selectedDateFilter = selectedDateFilter,
                 selectedEventType = selectedEventType,
                 selectedReadStatus = selectedReadStatus,
+                isResponsible = isResponsible,
                 onDependentSelected = { viewModel.setDependentFilter(it) },
                 onDateFilterSelected = { viewModel.setDateFilter(it) },
                 onEventTypeSelected = { viewModel.setEventTypeFilter(it) },
@@ -390,6 +392,7 @@ fun EnhancedFilterDialog(
     selectedDateFilter: String?,
     selectedEventType: String?,
     selectedReadStatus: String?,
+    isResponsible: Boolean,
     onDependentSelected: (String?) -> Unit,
     onDateFilterSelected: (String?) -> Unit,
     onEventTypeSelected: (String?) -> Unit,
@@ -404,13 +407,20 @@ fun EnhancedFilterDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
-                // Filtro por dependente
-                if (dependents.isNotEmpty()) {
+                // Filtro por dependente - sempre mostrar para responsáveis
+                if (isResponsible) {
                     FilterSection(
                         title = "Dependente",
-                        options = dependents,
-                        selectedOption = selectedDependent,
-                        onOptionSelected = onDependentSelected
+                        options = if (dependents.isNotEmpty()) {
+                            listOf("Todos") + dependents
+                        } else {
+                            listOf("Nenhum dependente encontrado")
+                        },
+                        selectedOption = if (selectedDependent == null && dependents.isNotEmpty()) "Todos" else selectedDependent,
+                        onOptionSelected = { dependent ->
+                            // Se selecionar "Todos", limpar o filtro
+                            onDependentSelected(if (dependent == "Todos") null else dependent)
+                        }
                     )
                 }
                 

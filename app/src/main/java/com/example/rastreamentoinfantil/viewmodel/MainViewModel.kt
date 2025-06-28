@@ -189,6 +189,18 @@ class MainViewModel(
         if (currentUser != null) {
             currentUserId = currentUser.uid
             Log.d(TAG1, "Usuário inicializado: $currentUserId")
+            
+            // Executar migração de relacionamentos familiares em background
+            viewModelScope.launch(Dispatchers.IO) {
+                firebaseRepository.migrateExistingFamilyRelationships { success, message ->
+                    if (success) {
+                        Log.d(TAG1, "Migração de relacionamentos concluída: $message")
+                    } else {
+                        Log.e(TAG1, "Erro na migração de relacionamentos: $message")
+                    }
+                }
+            }
+            
             loadUserIdAndGeofence()
         }
     }
@@ -198,7 +210,6 @@ class MainViewModel(
             Log.d(TAG1, "startLocationMonitoring: Monitoramento já está ativo, ignorando chamada")
             return
         }
-        
         Log.d(TAG1, "startLocationMonitoring: Iniciando monitoramento de localização")
         isLocationMonitoringActive = true
         
@@ -1196,6 +1207,11 @@ class MainViewModel(
      * Verifica o status de todas as geofences ativas para o usuário atual
      */
     private fun checkAllGeofencesStatus(location: Location) {
+        // NOVO: Não verificar geofences para responsáveis
+        if (_isResponsible.value) {
+            Log.d(TAG1, "checkAllGeofencesStatus: Usuário é responsável, não verifica geofences.")
+            return
+        }
         Log.d(TAG1, "[checkAllGeofencesStatus] === INÍCIO DA VERIFICAÇÃO ===")
         Log.d(TAG1, "[checkAllGeofencesStatus] Localização recebida: (${location.latitude}, ${location.longitude})")
         
@@ -1298,6 +1314,11 @@ class MainViewModel(
      * Verifica o status de todas as rotas ativas para o usuário atual
      */
     private fun checkAllRoutesStatus(location: Location) {
+        // NOVO: Não verificar rotas para responsáveis
+        if (_isResponsible.value) {
+            Log.d(TAG1, "checkAllRoutesStatus: Usuário é responsável, não verifica rotas.")
+            return
+        }
         val activeRoutes = getActiveRoutesForToday()
         Log.d(TAG1, "[checkAllRoutesStatus] Rotas ativas para hoje: "+activeRoutes.size)
         
@@ -1434,30 +1455,30 @@ class MainViewModel(
             val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
             Log.d(TAG1, "[onGeofenceReturn] Endereço obtido: $locationInfo")
             
-            val notificacao = NotificationHistoryEntry(
-                id = null,
-                titulo = "Retorno à Área Segura",
+        val notificacao = NotificationHistoryEntry(
+            id = null,
+            titulo = "Retorno à Área Segura",
                 body = "${childName ?: "Dependente"} voltou para a área segura '${geofence.name}' às $horario. $locationInfo",
-                childId = currentUserId,
-                childName = childName,
-                tipoEvento = "volta_geofence",
-                latitude = location.latitude,
-                longitude = location.longitude,
-                horarioEvento = horario,
-                contagemTempo = System.currentTimeMillis(),
-                lida = false
-            )
+            childId = currentUserId,
+            childName = childName,
+            tipoEvento = "volta_geofence",
+            latitude = location.latitude,
+            longitude = location.longitude,
+            horarioEvento = horario,
+            contagemTempo = System.currentTimeMillis(),
+            lida = false
+        )
             Log.d(TAG1, "[onGeofenceReturn] Notificação criada: $notificacao")
         
-            // Salva para dependente e responsável
-            currentUserId?.let { userId ->
+        // Salva para dependente e responsável
+        currentUserId?.let { userId ->
                 Log.d(TAG1, "[onGeofenceReturn] Chamando saveNotificationToBothUsers para userId: $userId")
-                firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
-                    if (!success) {
+            firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
+                if (!success) {
                         Log.e(TAG1, "[onGeofenceReturn] Erro ao salvar notificação de retorno à geofence: ${exception?.message}")
-                    } else {
+                } else {
                         Log.d(TAG1, "[onGeofenceReturn] Notificação de retorno à geofence salva com sucesso para userId: $userId")
-                    }
+                }
                 }
             } ?: run {
                 Log.e(TAG1, "[onGeofenceReturn] currentUserId nulo no momento de salvar notificação!")
@@ -1542,7 +1563,7 @@ class MainViewModel(
                 firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
                     if (!success) {
                         Log.e(TAG1, "[onRouteReturn] Erro ao salvar notificação de retorno à rota: ${exception?.message}")
-                    } else {
+            } else {
                         Log.d(TAG1, "[onRouteReturn] Notificação de retorno à rota salva com sucesso para userId: $userId")
                     }
                 }

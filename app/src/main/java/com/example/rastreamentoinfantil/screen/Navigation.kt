@@ -272,11 +272,13 @@ fun Navigation(
 
             // Determinar se o usuário é responsável baseado no mainViewModel
             val isResponsible = mainViewModel.isResponsible.value
+            val familyId = mainViewModel.currentUser.value?.familyId
 
             NotificationHistoryScreen(
                 viewModel = notificationHistoryViewModel,
                 userId = currentUserId,
                 isResponsible = isResponsible,
+                familyId = familyId,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
