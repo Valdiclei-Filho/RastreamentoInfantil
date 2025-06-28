@@ -42,8 +42,10 @@ fun NotificationHistoryScreen(
     val eventTypes by viewModel.eventTypes.collectAsState()
     val dateFilterOptions by viewModel.dateFilterOptions.collectAsState()
     val readStatusOptions by viewModel.readStatusOptions.collectAsState()
-    val stats by remember { derivedStateOf { viewModel.getNotificationStats() } }
-    val filteredStats by remember { derivedStateOf { viewModel.getFilteredStats() } }
+    val stats by remember(notifications) { derivedStateOf { viewModel.getNotificationStats() } }
+    val filteredStats by remember(notifications, selectedDependent, selectedDateFilter, selectedEventType, selectedReadStatus) { 
+        derivedStateOf { viewModel.getFilteredStats() } 
+    }
     
     // Estados para filtros
     var showFilterDialog by remember { mutableStateOf(false) }
@@ -62,8 +64,8 @@ fun NotificationHistoryScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showFilterDialog = true }) {
-                        Icon(Icons.Default.FilterList, contentDescription = "Filtros")
+                        IconButton(onClick = { showFilterDialog = true }) {
+                            Icon(Icons.Default.FilterList, contentDescription = "Filtros")
                     }
                     IconButton(onClick = { viewModel.refresh(userId) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Atualizar")
@@ -135,7 +137,14 @@ fun NotificationHistoryScreen(
                     ) {
                         // Estatísticas
                         item {
-                            StatsCard(stats = stats, filteredStats = filteredStats)
+                            StatsCard(
+                                stats = stats, 
+                                filteredStats = filteredStats,
+                                hasActiveFilters = selectedDependent != null || 
+                                                 selectedDateFilter != null || 
+                                                 selectedEventType != null || 
+                                                 selectedReadStatus != null
+                            )
                         }
                         
                         // Filtros ativos
@@ -323,7 +332,7 @@ fun NotificationCard(notification: NotificationHistoryEntry, onMarkAsRead: () ->
             }
             
             // Status de leitura (sempre mostrar)
-            Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -505,7 +514,11 @@ private fun getReadStatusDisplayName(status: String): String {
 }
 
 @Composable
-fun StatsCard(stats: Map<String, Int>, filteredStats: Map<String, Int>) {
+fun StatsCard(
+    stats: Map<String, Int>,
+    filteredStats: Map<String, Int>,
+    hasActiveFilters: Boolean
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -534,7 +547,7 @@ fun StatsCard(stats: Map<String, Int>, filteredStats: Map<String, Int>) {
             }
             
             // Estatísticas filtradas (se houver filtros ativos)
-            if (filteredStats["total_filtrado"] != stats["total"]) {
+            if (hasActiveFilters) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Divider()
                 Spacer(modifier = Modifier.height(8.dp))
