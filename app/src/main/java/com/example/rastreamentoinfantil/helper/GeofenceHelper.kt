@@ -1,6 +1,7 @@
 package com.example.rastreamentoinfantil.helper
 
 import android.location.Location
+import android.util.Log
 import com.example.rastreamentoinfantil.model.Geofence
 import kotlin.math.cos
 import kotlin.math.sin
@@ -8,10 +9,15 @@ import kotlin.math.sqrt
 import kotlin.math.atan2
 
 class GeofenceHelper {
+    companion object {
+        private const val TAG = "GeofenceHelper"
+    }
 
     fun isLocationInGeofence(currentLocation: Location, geofence: Geofence): Boolean {
+        Log.d(TAG, "[isLocationInGeofence] Verificando geofence: ${geofence.name}")
+        
         if (geofence.radius <= 0) {
-            println("GeofenceHelper: Raio inválido (${geofence.radius}), retornando false")
+            Log.w(TAG, "[isLocationInGeofence] Raio inválido (${geofence.radius}), retornando false")
             return false
         }
 
@@ -22,13 +28,13 @@ class GeofenceHelper {
             geofence.coordinates.longitude
         )
 
-        println("GeofenceHelper: Localização Atual: (${currentLocation.latitude}, ${currentLocation.longitude})")
-        println("GeofenceHelper: Centro Geofence: (${geofence.coordinates.latitude}, ${geofence.coordinates.longitude})")
-        println("GeofenceHelper: Raio Geofence: ${geofence.radius}m")
-        println("GeofenceHelper: Distância Calculada: ${distance}m")
+        Log.d(TAG, "[isLocationInGeofence] Localização Atual: (${currentLocation.latitude}, ${currentLocation.longitude})")
+        Log.d(TAG, "[isLocationInGeofence] Centro Geofence: (${geofence.coordinates.latitude}, ${geofence.coordinates.longitude})")
+        Log.d(TAG, "[isLocationInGeofence] Raio Geofence: ${geofence.radius}m")
+        Log.d(TAG, "[isLocationInGeofence] Distância Calculada: ${distance}m")
 
         val isInside = distance < geofence.radius
-        println("GeofenceHelper: Está dentro? $isInside (distance < radius)")
+        Log.d(TAG, "[isLocationInGeofence] Está dentro? $isInside (distance < radius)")
         return isInside
     }
 
@@ -43,14 +49,11 @@ class GeofenceHelper {
                 cos(phi1) * cos(phi2) *
                 sin(deltaLambda / 2) * sin(deltaLambda / 2)
 
-        // val sqrtA = sqrt(a)
-        // val validatedSqrtA = min(1.0, max(-1.0, sqrtA)) // Não precisamos mais disto para atan2
-
         // Forma mais estável numericamente, especialmente para distâncias pequenas:
-        val c = 2 * atan2(sqrt(a), sqrt(1 - a)) // <<< MUDANÇA AQUI
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
 
         val distance = r * c
-        println("calculateDistance: lat1=$lat1, lon1=$lon1, lat2=$lat2, lon2=$lon2, a_val=$a, c_val=$c, result=$distance")
+        Log.d(TAG, "[calculateDistance] lat1=$lat1, lon1=$lon1, lat2=$lat2, lon2=$lon2, a_val=$a, c_val=$c, result=$distance")
         return distance
     }
 }

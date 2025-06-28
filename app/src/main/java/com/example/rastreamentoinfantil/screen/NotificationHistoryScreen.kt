@@ -3,6 +3,8 @@ package com.example.rastreamentoinfantil.screen
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -14,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
 import com.example.rastreamentoinfantil.model.NotificationHistoryEntry
 import com.example.rastreamentoinfantil.viewmodel.NotificationHistoryViewModel
 import java.text.SimpleDateFormat
@@ -31,15 +34,18 @@ fun NotificationHistoryScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     val selectedDependent by viewModel.selectedDependent.collectAsState()
-    val selectedDate by viewModel.selectedDate.collectAsState()
+    val selectedDateFilter by viewModel.selectedDateFilter.collectAsState()
     val selectedEventType by viewModel.selectedEventType.collectAsState()
+    val selectedReadStatus by viewModel.selectedReadStatus.collectAsState()
     val dependents by viewModel.dependents.collectAsState()
     val eventTypes by viewModel.eventTypes.collectAsState()
+    val dateFilterOptions by viewModel.dateFilterOptions.collectAsState()
+    val readStatusOptions by viewModel.readStatusOptions.collectAsState()
     val stats by remember { derivedStateOf { viewModel.getNotificationStats() } }
+    val filteredStats by remember { derivedStateOf { viewModel.getFilteredStats() } }
     
     // Estados para filtros
     var showFilterDialog by remember { mutableStateOf(false) }
-    var showDatePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(userId) {
         viewModel.loadNotificationHistory(userId, isResponsible)
@@ -128,16 +134,17 @@ fun NotificationHistoryScreen(
                     ) {
                         // Estatísticas
                         item {
-                            StatsCard(stats = stats)
+                            StatsCard(stats = stats, filteredStats = filteredStats)
                         }
                         
                         // Filtros ativos
-                        if (selectedDependent != null || selectedDate != null || selectedEventType != null) {
+                        if (selectedDependent != null || selectedDateFilter != null || selectedEventType != null || selectedReadStatus != null) {
                             item {
                                 ActiveFiltersCard(
                                     selectedDependent = selectedDependent,
-                                    selectedDate = selectedDate,
+                                    selectedDateFilter = selectedDateFilter,
                                     selectedEventType = selectedEventType,
+                                    selectedReadStatus = selectedReadStatus,
                                     onClearFilters = { viewModel.clearFilters() }
                                 )
                             }
@@ -151,16 +158,21 @@ fun NotificationHistoryScreen(
             }
         }
         
-        // Dialog de filtros
+        // Dialog de filtros melhorado
         if (showFilterDialog) {
-            FilterDialog(
+            EnhancedFilterDialog(
                 dependents = dependents,
                 eventTypes = eventTypes,
+                dateFilterOptions = dateFilterOptions,
+                readStatusOptions = readStatusOptions,
                 selectedDependent = selectedDependent,
+                selectedDateFilter = selectedDateFilter,
                 selectedEventType = selectedEventType,
+                selectedReadStatus = selectedReadStatus,
                 onDependentSelected = { viewModel.setDependentFilter(it) },
+                onDateFilterSelected = { viewModel.setDateFilter(it) },
                 onEventTypeSelected = { viewModel.setEventTypeFilter(it) },
-                onDateSelected = { viewModel.setDateFilter(it) },
+                onReadStatusSelected = { viewModel.setReadStatusFilter(it) },
                 onDismiss = { showFilterDialog = false }
             )
         }
@@ -189,6 +201,8 @@ fun NotificationCard(notification: NotificationHistoryEntry) {
                 val icon = when (notification.tipoEvento) {
                     "saida_geofence" -> Icons.AutoMirrored.Filled.ExitToApp
                     "volta_geofence" -> Icons.Default.Home
+                    "saida_rota" -> Icons.Default.Warning
+                    "volta_rota" -> Icons.Default.CheckCircle
                     "desvio_rota" -> Icons.Default.Warning
                     else -> Icons.Default.Notifications
                 }
@@ -196,6 +210,8 @@ fun NotificationCard(notification: NotificationHistoryEntry) {
                 val iconTint = when (notification.tipoEvento) {
                     "saida_geofence" -> MaterialTheme.colorScheme.error
                     "volta_geofence" -> MaterialTheme.colorScheme.primary
+                    "saida_rota" -> MaterialTheme.colorScheme.error
+                    "volta_rota" -> MaterialTheme.colorScheme.primary
                     "desvio_rota" -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurface
                 }
@@ -311,102 +327,70 @@ fun NotificationCard(notification: NotificationHistoryEntry) {
 }
 
 @Composable
-fun FilterDialog(
+fun EnhancedFilterDialog(
     dependents: List<String>,
     eventTypes: List<String>,
+    dateFilterOptions: List<String>,
+    readStatusOptions: List<String>,
     selectedDependent: String?,
+    selectedDateFilter: String?,
     selectedEventType: String?,
+    selectedReadStatus: String?,
     onDependentSelected: (String?) -> Unit,
+    onDateFilterSelected: (String?) -> Unit,
     onEventTypeSelected: (String?) -> Unit,
-    onDateSelected: (String?) -> Unit,
+    onReadStatusSelected: (String?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selectedDate by remember { mutableStateOf<String?>(null) }
-    
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Filtros") },
+        title = { Text("Filtros Avançados") },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
                 // Filtro por dependente
                 if (dependents.isNotEmpty()) {
-                    Text(
-                        text = "Dependente:",
-                        fontWeight = FontWeight.Bold
+                    FilterSection(
+                        title = "Dependente",
+                        options = dependents,
+                        selectedOption = selectedDependent,
+                        onOptionSelected = onDependentSelected
                     )
-                    dependents.forEach { dependent ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = selectedDependent == dependent,
-                                onClick = {
-                                    onDependentSelected(
-                                        if (selectedDependent == dependent) null
-                                        else dependent
-                                    )
-                                }
-                            )
-                            Text(dependent)
-                        }
-                    }
                 }
                 
                 // Filtro por tipo de evento
                 if (eventTypes.isNotEmpty()) {
-                    Text(
-                        text = "Tipo de Evento:",
-                        fontWeight = FontWeight.Bold
+                    FilterSection(
+                        title = "Tipo de Evento",
+                        options = eventTypes,
+                        selectedOption = selectedEventType,
+                        onOptionSelected = onEventTypeSelected
                     )
-                    eventTypes.forEach { eventType ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = selectedEventType == eventType,
-                                onClick = {
-                                    onEventTypeSelected(
-                                        if (selectedEventType == eventType) null
-                                        else eventType
-                                    )
-                                }
-                            )
-                            Text(eventType)
-                        }
-                    }
                 }
                 
                 // Filtro por data
-                Text(
-                    text = "Data:",
-                    fontWeight = FontWeight.Bold
+                FilterSection(
+                    title = "Período",
+                    options = dateFilterOptions.map { getDateFilterDisplayName(it) },
+                    selectedOption = selectedDateFilter?.let { getDateFilterDisplayName(it) },
+                    onOptionSelected = { option ->
+                        val filterValue = dateFilterOptions.find { getDateFilterDisplayName(it) == option }
+                        onDateFilterSelected(filterValue)
+                    }
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = selectedDate == "hoje",
-                        onClick = {
-                            selectedDate = if (selectedDate == "hoje") null else "hoje"
-                            onDateSelected(selectedDate)
-                        }
-                    )
-                    Text("Hoje")
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = selectedDate == "ontem",
-                        onClick = {
-                            selectedDate = if (selectedDate == "ontem") null else "ontem"
-                            onDateSelected(selectedDate)
-                        }
-                    )
-                    Text("Ontem")
-                }
+                
+                // Filtro por status de leitura
+                FilterSection(
+                    title = "Status de Leitura",
+                    options = readStatusOptions.map { getReadStatusDisplayName(it) },
+                    selectedOption = selectedReadStatus?.let { getReadStatusDisplayName(it) },
+                    onOptionSelected = { option ->
+                        val filterValue = readStatusOptions.find { getReadStatusDisplayName(it) == option }
+                        onReadStatusSelected(filterValue)
+                    }
+                )
             }
         },
         confirmButton = {
@@ -418,7 +402,65 @@ fun FilterDialog(
 }
 
 @Composable
-fun StatsCard(stats: Map<String, Int>) {
+fun FilterSection(
+    title: String,
+    options: List<String>,
+    selectedOption: String?,
+    onOptionSelected: (String?) -> Unit
+) {
+    Column {
+        Text(
+            text = title,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        options.forEach { option ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = selectedOption == option,
+                    onClick = {
+                        onOptionSelected(
+                            if (selectedOption == option) null
+                            else option
+                        )
+                    }
+                )
+                Text(
+                    text = option,
+                    fontSize = 14.sp
+                )
+            }
+        }
+    }
+}
+
+private fun getDateFilterDisplayName(filter: String): String {
+    return when (filter) {
+        "hoje" -> "Hoje"
+        "ontem" -> "Ontem"
+        "ultima_semana" -> "Última Semana"
+        "ultimo_mes" -> "Último Mês"
+        "ultima_hora" -> "Última Hora"
+        "ultimas_24h" -> "Últimas 24 Horas"
+        else -> filter
+    }
+}
+
+private fun getReadStatusDisplayName(status: String): String {
+    return when (status) {
+        "todas" -> "Todas"
+        "nao_lidas" -> "Não Lidas"
+        "lidas" -> "Lidas"
+        else -> status
+    }
+}
+
+@Composable
+fun StatsCard(stats: Map<String, Int>, filteredStats: Map<String, Int>) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -435,28 +477,50 @@ fun StatsCard(stats: Map<String, Int>) {
             )
             Spacer(modifier = Modifier.height(8.dp))
             
+            // Estatísticas gerais
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 StatItem("Total", stats["total"] ?: 0)
                 StatItem("Não lidas", stats["nao_lidas"] ?: 0)
-                StatItem("Saídas", stats["saidas_geofence"] ?: 0 + (stats["saidas_rota"] ?: 0))
-                StatItem("Retornos", stats["voltas_geofence"] ?: 0 + (stats["voltas_rota"] ?: 0))
+                StatItem("Saídas", (stats["saidas_geofence"] ?: 0) + (stats["saidas_rota"] ?: 0))
+                StatItem("Retornos", (stats["voltas_geofence"] ?: 0) + (stats["voltas_rota"] ?: 0))
+            }
+            
+            // Estatísticas filtradas (se houver filtros ativos)
+            if (filteredStats["total_filtrado"] != stats["total"]) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Divider()
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Resultados Filtrados",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    StatItem("Filtrado", filteredStats["total_filtrado"] ?: 0, fontSize = 14.sp)
+                    StatItem("Não lidas", filteredStats["nao_lidas_filtrado"] ?: 0, fontSize = 14.sp)
+                    StatItem("Lidas", filteredStats["lidas_filtrado"] ?: 0, fontSize = 14.sp)
+                }
             }
         }
     }
 }
 
 @Composable
-fun StatItem(label: String, value: Int) {
+fun StatItem(label: String, value: Int, fontSize: TextUnit = 18.sp) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = value.toString(),
             fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
+            fontSize = fontSize,
             color = MaterialTheme.colorScheme.primary
         )
         Text(
@@ -470,8 +534,9 @@ fun StatItem(label: String, value: Int) {
 @Composable
 fun ActiveFiltersCard(
     selectedDependent: String?,
-    selectedDate: String?,
+    selectedDateFilter: String?,
     selectedEventType: String?,
+    selectedReadStatus: String?,
     onClearFilters: () -> Unit
 ) {
     Card(
@@ -494,11 +559,14 @@ fun ActiveFiltersCard(
                 selectedDependent?.let {
                     Text("Dependente: $it", fontSize = 12.sp)
                 }
-                selectedDate?.let {
-                    Text("Data: $it", fontSize = 12.sp)
+                selectedDateFilter?.let {
+                    Text("Período: ${getDateFilterDisplayName(it)}", fontSize = 12.sp)
                 }
                 selectedEventType?.let {
                     Text("Evento: $it", fontSize = 12.sp)
+                }
+                selectedReadStatus?.let {
+                    Text("Status: ${getReadStatusDisplayName(it)}", fontSize = 12.sp)
                 }
             }
             TextButton(onClick = onClearFilters) {

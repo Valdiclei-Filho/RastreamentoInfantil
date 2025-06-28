@@ -57,21 +57,17 @@ class RouteHelper {
         return sqrt(dx * dx + dy * dy) * 111000 // Aproximação: 1 grau = 111km
     }
 
-    fun isLocationOnRoute(location: Location, route: Route): Boolean {
+    fun isLocationOnRoute(location: Location, route: Route, forceCheck: Boolean = false): Boolean {
         val currentTime = System.currentTimeMillis()
         
         // Verifica se é hora de fazer uma nova verificação
-        if (currentTime - lastDeviationCheckTime < DEVIATION_CHECK_INTERVAL) {
+        if (!forceCheck && currentTime - lastDeviationCheckTime < DEVIATION_CHECK_INTERVAL) {
             return true // Mantém o status anterior
         }
         
         lastDeviationCheckTime = currentTime
 
-        Log.d(TAG, "Verificando se localização está na rota: ${route.name}")
-        Log.d(TAG, "Localização atual: (${location.latitude}, ${location.longitude})")
-
         if (route.encodedPolyline == null) {
-            Log.w(TAG, "Rota não possui polyline codificada")
             return false
         }
 
@@ -79,12 +75,10 @@ class RouteHelper {
         val routePoints = try {
             PolyUtil.decode(route.encodedPolyline)
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao decodificar polyline", e)
             return false
         }
 
         if (routePoints.size < MIN_POINTS_FOR_ROUTE) {
-            Log.w(TAG, "Rota não possui pontos suficientes para verificação")
             return false
         }
 
@@ -111,26 +105,28 @@ class RouteHelper {
             }
         }
 
+        // NOVO: Se a distância for absurda (> 1000m), retorna false imediatamente
+        if (minDistance > 1000f) {
+            consecutiveDeviations = 0
+            return false
+        }
+
         // Lógica de detecção de desvio
         val isCurrentlyOnRoute = minDistance <= MAX_DISTANCE_FROM_ROUTE
         
         if (isCurrentlyOnRoute) {
             consecutiveDeviations = 0
             lastKnownRoutePoint = closestPoint
-            Log.d(TAG, "Localização está dentro da rota (distância: $minDistance metros)")
             return true
         } else {
             // Verifica se o desvio é significativo e persistente
             if (minDistance >= MIN_DISTANCE_FOR_DEVIATION) {
                 consecutiveDeviations++
-                Log.d(TAG, "Desvio detectado (distância: $minDistance metros, consecutivos: $consecutiveDeviations)")
-                
                 // Se houver desvios consecutivos, considera como desvio real
                 if (consecutiveDeviations >= 2) {
                     return false
                 }
             }
-            
             // Se o desvio for pequeno ou não persistente, mantém na rota
             return true
         }

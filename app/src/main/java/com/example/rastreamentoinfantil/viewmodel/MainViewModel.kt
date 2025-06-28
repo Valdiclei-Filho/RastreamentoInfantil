@@ -12,6 +12,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.AndroidViewModel
 import com.example.rastreamentoinfantil.model.Geofence
 import com.example.rastreamentoinfantil.model.LocationRecord
+import com.example.rastreamentoinfantil.model.Coordinate
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
 import com.example.rastreamentoinfantil.service.GeocodingService
 import com.example.rastreamentoinfantil.helper.GeofenceHelper // Certifique-se que o nome da classe é GeofenceHelper
@@ -163,6 +164,7 @@ class MainViewModel(
     // Cache para evitar notificações duplicadas
     private val lastNotificationTime = mutableMapOf<String, Long>()
     private val NOTIFICATION_COOLDOWN = 30000L // 30 segundos entre notificações do mesmo tipo
+    private val PERIODIC_NOTIFICATION_INTERVAL = 40000L // 5 minutos para notificações periódicas
 
     data class RouteDeviation(
         val routeId: String,
@@ -292,7 +294,7 @@ class MainViewModel(
         // Verifica todas as rotas ativas
         activeRoutes.forEach { route ->
             Log.d(TAG1, "Verificando rota ativa: ${route.name}")
-            if (routeHelper.isLocationOnRoute(location, route)) {
+            if (routeHelper.isLocationOnRoute(location, route, forceCheck = true)) {
                 isOnAnyRoute = true
                 Log.d(TAG1, "Usuário está na rota: ${route.name}")
             }
@@ -446,8 +448,58 @@ class MainViewModel(
                 Log.e(TAG1, "[loadUserRoutes] Erro ao carregar rotas", error)
                 _error.value = "Erro ao carregar rotas: ${error.message}"
             } else {
-                _routes.value = routes ?: emptyList()
-                Log.d(TAG1, "[loadUserRoutes] Rotas carregadas: ${routes?.size ?: 0}")
+                val routesList = routes ?: emptyList()
+                val previousRoutes = _routes.value
+                _routes.value = routesList
+                Log.d(TAG1, "[loadUserRoutes] Rotas carregadas: ${routesList.size}")
+                
+                // Inicializar o status das rotas se houver localização atual
+                _currentLocation.value?.let { location ->
+                    Log.d(TAG1, "[loadUserRoutes] Inicializando status das rotas com localização atual: (${location.latitude}, ${location.longitude})")
+                    
+                    // Preservar status anterior se existir
+                    val currentStatusMap = _routeStatusMap.value.toMutableMap()
+                    
+                    routesList.forEach { route ->
+                        val routeId = route.id ?: return@forEach
+                        val isOnRoute = routeHelper.isLocationOnRoute(location, route, forceCheck = true)
+                        
+                        // Se já existe um status anterior para esta rota, verificar se houve mudança
+                        val previousStatus = currentStatusMap[routeId]
+                        if (previousStatus != null && previousStatus != isOnRoute) {
+                            Log.d(TAG1, "[loadUserRoutes] 🔄 Mudança detectada na rota ${route.name}: $previousStatus -> $isOnRoute")
+                            // Forçar verificação de notificação
+                            val currentTime = System.currentTimeMillis()
+                            val notificationKey = "route_${routeId}_${if (isOnRoute) "return" else "exit"}"
+                            val cooldownTime = if (isOnRoute) 10000L else NOTIFICATION_COOLDOWN
+                            
+                            if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > cooldownTime) {
+                                lastNotificationTime[notificationKey] = currentTime
+                                
+                                if (!isOnRoute) {
+                                    Log.d(TAG1, "[loadUserRoutes] 🚪 Usuário saiu da rota: ${route.name}")
+                                    _showRouteExitNotificationEvent.tryEmit(route.name)
+                                    onRouteDeviation(route, location)
+                                } else {
+                                    Log.d(TAG1, "[loadUserRoutes] 🏠 Usuário voltou para a rota: ${route.name}")
+                                    onRouteReturn(route, location)
+                                }
+                            }
+                        }
+                        
+                        // Atualizar o status atual
+                        currentStatusMap[routeId] = isOnRoute
+                    }
+                    
+                    _routeStatusMap.value = currentStatusMap
+                    Log.d(TAG1, "[loadUserRoutes] Status das rotas atualizado: $currentStatusMap")
+                    
+                    // Verificar status inicial das rotas (apenas para novas rotas)
+                    Log.d(TAG1, "[loadUserRoutes] Chamando checkAllRoutesStatus...")
+                    checkAllRoutesStatus(location)
+                } ?: run {
+                    Log.w(TAG1, "[loadUserRoutes] ⚠️ Nenhuma localização atual disponível para inicializar status")
+                }
             }
         }
         
@@ -476,6 +528,10 @@ class MainViewModel(
                     } else if (routeId != null) { // Sucesso se routeId não for nulo
                         _routeOperationStatus.value = RouteOperationStatus.Success("Rota salva com sucesso!")
                         loadUserRoutes(it) // Recarregar rotas após salvar
+                        
+                        // Forçar verificação de status após atualização
+                        Log.d(TAG1, "[addOrUpdateRoute] Forçando verificação de status após atualização")
+                        forceRouteStatusCheck()
                     } else {
                         _routeOperationStatus.value = RouteOperationStatus.Error("Falha desconhecida ao salvar rota.")
                         Log.e(TAG, "Erro desconhecido ao salvar rota ${route.id} para o usuário $it")
@@ -682,6 +738,10 @@ class MainViewModel(
                     } else if (routeIdFromSave != null) { // Sucesso
                         _routeOperationStatus.value = RouteOperationStatus.Success("Rota '${newRoute.name}' criada e salva!", routeIdFromSave)
                         loadUserRoutes(userId) // Recarregar rotas após salvar
+                        
+                        // Forçar verificação de status após criação
+                        Log.d(TAG1, "[createRouteWithDirections] Forçando verificação de status após criação")
+                        forceRouteStatusCheck()
                     } else {
                         _routeOperationStatus.value = RouteOperationStatus.Error("Falha desconhecida ao salvar rota.")
                         Log.e(TAG1, "Erro desconhecido ao salvar nova rota ${newRoute.id} para o usuário $userId")
@@ -888,19 +948,84 @@ class MainViewModel(
      * Carrega geofences do usuário atual
      */
     fun loadUserGeofences() {
+        Log.d(TAG1, "[loadUserGeofences] === INÍCIO DO CARREGAMENTO ===")
+        Log.d(TAG1, "[loadUserGeofences] currentUserId: $currentUserId")
         currentUserId?.let { userId ->
             _isLoadingGeofences.value = true
+            Log.d(TAG1, "[loadUserGeofences] Chamando Firebase para carregar geofences do usuário: $userId")
             firebaseRepository.getUserGeofences(userId) { geofences, error ->
                 _isLoadingGeofences.value = false
                 if (error != null) {
-                    Log.e(TAG1, "Erro ao carregar geofences", error)
+                    Log.e(TAG1, "[loadUserGeofences] ❌ Erro ao carregar geofences", error)
                     _error.value = "Erro ao carregar áreas seguras: ${error.message}"
                 } else {
-                    _geofences.value = geofences ?: emptyList()
-                    Log.d(TAG1, "Geofences carregadas: ${geofences?.size ?: 0}")
+                    val geofencesList = geofences ?: emptyList()
+                    val previousGeofences = _geofences.value
+                    _geofences.value = geofencesList
+                    Log.d(TAG1, "[loadUserGeofences] ✅ Geofences carregadas do Firebase: ${geofencesList.size}")
+                    
+                    geofencesList.forEach { geofence ->
+                        Log.d(TAG1, "[loadUserGeofences] 📍 Geofence: ${geofence.name} (ID: ${geofence.id})")
+                        Log.d(TAG1, "[loadUserGeofences]   - isActive: ${geofence.isActive}")
+                        Log.d(TAG1, "[loadUserGeofences]   - targetUserId: ${geofence.targetUserId}")
+                        Log.d(TAG1, "[loadUserGeofences]   - createdByUserId: ${geofence.createdByUserId}")
+                        Log.d(TAG1, "[loadUserGeofences]   - coordenadas: (${geofence.coordinates.latitude}, ${geofence.coordinates.longitude})")
+                        Log.d(TAG1, "[loadUserGeofences]   - raio: ${geofence.radius}m")
+                    }
+                    
+                    // Inicializar o status das geofences se houver localização atual
+                    _currentLocation.value?.let { location ->
+                        Log.d(TAG1, "[loadUserGeofences] Inicializando status das geofences com localização atual: (${location.latitude}, ${location.longitude})")
+                        
+                        // Preservar status anterior se existir
+                        val currentStatusMap = _geofenceStatusMap.value.toMutableMap()
+                        
+                        geofencesList.forEach { geofence ->
+                            val geofenceId = geofence.id ?: return@forEach
+                            val isInside = geofenceHelperClass.isLocationInGeofence(location, geofence)
+                            
+                            // Se já existe um status anterior para esta geofence, verificar se houve mudança
+                            val previousStatus = currentStatusMap[geofenceId]
+                            if (previousStatus != null && previousStatus != isInside) {
+                                Log.d(TAG1, "[loadUserGeofences] 🔄 Mudança detectada na geofence ${geofence.name}: $previousStatus -> $isInside")
+                                // Forçar verificação de notificação
+                                val currentTime = System.currentTimeMillis()
+                                val notificationKey = "geofence_${geofenceId}_${if (isInside) "return" else "exit"}"
+                                val cooldownTime = if (isInside) 10000L else NOTIFICATION_COOLDOWN
+                                
+                                if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > cooldownTime) {
+                                    lastNotificationTime[notificationKey] = currentTime
+                                    
+                                    if (!isInside) {
+                                        Log.d(TAG1, "[loadUserGeofences] 🚪 Usuário saiu da geofence: ${geofence.name}")
+                                        _showExitNotificationEvent.tryEmit(geofence.name)
+                                        onGeofenceExit(geofence, location)
+                                    } else {
+                                        Log.d(TAG1, "[loadUserGeofences] 🏠 Usuário voltou para a geofence: ${geofence.name}")
+                                        onGeofenceReturn(geofence, location)
+                                    }
+                                }
+                            }
+                            
+                            // Atualizar o status atual
+                            currentStatusMap[geofenceId] = isInside
+                        }
+                        
+                        _geofenceStatusMap.value = currentStatusMap
+                        Log.d(TAG1, "[loadUserGeofences] Status das geofences atualizado: $currentStatusMap")
+                        
+                        // Verificar status inicial das geofences (apenas para novas geofences)
+                        Log.d(TAG1, "[loadUserGeofences] Chamando checkAllGeofencesStatus...")
+                        checkAllGeofencesStatus(location)
+                    } ?: run {
+                        Log.w(TAG1, "[loadUserGeofences] ⚠️ Nenhuma localização atual disponível para inicializar status")
+                    }
                 }
             }
+        } ?: run {
+            Log.w(TAG1, "[loadUserGeofences] ❌ currentUserId é nulo - não é possível carregar geofences")
         }
+        Log.d(TAG1, "[loadUserGeofences] === FIM DO CARREGAMENTO ===")
     }
 
     /**
@@ -955,6 +1080,10 @@ class MainViewModel(
                 } else if (geofenceId != null) {
                     _geofenceOperationStatus.value = GeofenceOperationStatus.Success("Área segura '${geofence.name}' atualizada!", geofenceId)
                     loadUserGeofences() // Recarregar geofences após atualizar
+                    
+                    // Forçar verificação de status após atualização
+                    Log.d(TAG1, "[updateGeofence] Forçando verificação de status após atualização")
+                    forceGeofenceStatusCheck()
                 } else {
                     _geofenceOperationStatus.value = GeofenceOperationStatus.Error("Falha desconhecida ao atualizar área segura.")
                     Log.e(TAG1, "Erro desconhecido ao atualizar geofence ${geofence.id}")
@@ -1005,15 +1134,28 @@ class MainViewModel(
      * Filtra geofences que estão ativas para o usuário atual
      */
     fun getActiveGeofencesForUser(): List<Geofence> {
-        return geofences.value.filter { geofence ->
-            geofence.isActive &&
+        Log.d(TAG1, "[getActiveGeofencesForUser] === INÍCIO DO FILTRO ===")
+        Log.d(TAG1, "[getActiveGeofencesForUser] Total de geofences carregadas: ${geofences.value.size}")
+        Log.d(TAG1, "[getActiveGeofencesForUser] isResponsible: ${isResponsible.value}, currentUserId: $currentUserId")
+        
+        val activeGeofences = geofences.value.filter { geofence ->
+            val isActive = geofence.isActive &&
             (
                 // Responsáveis veem todas as geofences que criaram
                 (isResponsible.value && geofence.createdByUserId == currentUserId) ||
                 // Membros veem apenas geofences onde são o targetUserId
                 (!isResponsible.value && geofence.targetUserId == currentUserId)
             )
+            Log.d(TAG1, "[getActiveGeofencesForUser] Geofence ${geofence.name}: isActive=${geofence.isActive}, createdByUserId=${geofence.createdByUserId}, targetUserId=${geofence.targetUserId}, result=$isActive")
+            isActive
         }
+        
+        Log.d(TAG1, "[getActiveGeofencesForUser] Geofences ativas para o usuário: ${activeGeofences.size}")
+        activeGeofences.forEach { geofence ->
+            Log.d(TAG1, "[getActiveGeofencesForUser] ✅ Geofence ativa: ${geofence.name} (ID: ${geofence.id})")
+        }
+        Log.d(TAG1, "[getActiveGeofencesForUser] === FIM DO FILTRO ===")
+        return activeGeofences
     }
 
     // Função utilitária para registrar notificação no Firestore
@@ -1054,45 +1196,102 @@ class MainViewModel(
      * Verifica o status de todas as geofences ativas para o usuário atual
      */
     private fun checkAllGeofencesStatus(location: Location) {
+        Log.d(TAG1, "[checkAllGeofencesStatus] === INÍCIO DA VERIFICAÇÃO ===")
+        Log.d(TAG1, "[checkAllGeofencesStatus] Localização recebida: (${location.latitude}, ${location.longitude})")
+        
         val activeGeofences = getActiveGeofencesForUser()
+        Log.d(TAG1, "[checkAllGeofencesStatus] Geofences ativas encontradas: ${activeGeofences.size}")
+        
+        if (activeGeofences.isEmpty()) {
+            Log.w(TAG1, "[checkAllGeofencesStatus] NENHUMA GEOFENCE ATIVA ENCONTRADA!")
+            return
+        }
+        
         val currentStatusMap = _geofenceStatusMap.value.toMutableMap()
         val currentTime = System.currentTimeMillis()
+        
+        Log.d(TAG1, "[checkAllGeofencesStatus] Status atual das geofences: $currentStatusMap")
         
         activeGeofences.forEach { geofence ->
             val geofenceId = geofence.id ?: return@forEach
             val isInside = geofenceHelperClass.isLocationInGeofence(location, geofence)
             val previousStatus = currentStatusMap[geofenceId]
             
-            // Atualiza o status atual
-            currentStatusMap[geofenceId] = isInside
+            Log.d(TAG1, "[checkAllGeofencesStatus] === ANÁLISE GEOFENCE: ${geofence.name} ===")
+            Log.d(TAG1, "[checkAllGeofencesStatus] Geofence ${geofence.name}: previousStatus=$previousStatus, isInside=$isInside")
+            Log.d(TAG1, "[checkAllGeofencesStatus] Centro da geofence: (${geofence.coordinates.latitude}, ${geofence.coordinates.longitude})")
+            Log.d(TAG1, "[checkAllGeofencesStatus] Raio da geofence: ${geofence.radius}m")
             
-            // Verifica se houve mudança de status
-            if (previousStatus != null && previousStatus != isInside) {
-                val notificationKey = "geofence_${geofenceId}_${if (isInside) "return" else "exit"}"
+            // Se é a primeira verificação (previousStatus == null), apenas inicializa o status
+            if (previousStatus == null) {
+                currentStatusMap[geofenceId] = isInside
+                Log.d(TAG1, "[checkAllGeofencesStatus] PRIMEIRA VERIFICAÇÃO para geofence ${geofence.name}: isInside=$isInside")
                 
-                // Verifica se já foi notificado recentemente
-                if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > NOTIFICATION_COOLDOWN) {
-                    lastNotificationTime[notificationKey] = currentTime
+                // IMPORTANTE: Se é a primeira verificação e o usuário está DENTRO da geofence,
+                // não devemos gerar notificação de retorno, pois ele já estava lá
+                // Mas se está FORA, podemos considerar que ele "saiu" para gerar a primeira notificação
+                if (!isInside) {
+                    Log.d(TAG1, "[checkAllGeofencesStatus] Primeira verificação - usuário está FORA da geofence ${geofence.name}, mas não gerando notificação inicial")
+                }
+            } else {
+                // Atualiza o status atual
+                currentStatusMap[geofenceId] = isInside
+                
+                // Verifica se houve mudança de status
+                if (previousStatus != isInside) {
+                    val notificationKey = "geofence_${geofenceId}_${if (isInside) "return" else "exit"}"
                     
-                    if (!isInside) {
-                        // Usuário saiu da geofence
-                        Log.d(TAG1, "Usuário saiu da geofence: ${geofence.name}")
-                        _showExitNotificationEvent.tryEmit(geofence.name)
-                        onGeofenceExit(geofence, location)
+                    Log.d(TAG1, "[checkAllGeofencesStatus] 🔄 MUDANÇA DETECTADA: previousStatus=$previousStatus, isInside=$isInside")
+                    Log.d(TAG1, "[checkAllGeofencesStatus] NotificationKey: $notificationKey")
+                    Log.d(TAG1, "[checkAllGeofencesStatus] Última notificação: ${lastNotificationTime[notificationKey]}")
+                    Log.d(TAG1, "[checkAllGeofencesStatus] Tempo atual: $currentTime")
+                    Log.d(TAG1, "[checkAllGeofencesStatus] Diferença: ${currentTime - (lastNotificationTime[notificationKey] ?: 0L)}")
+                    
+                    // Verifica se já foi notificado recentemente (reduzido para 10 segundos para retornos)
+                    val cooldownTime = if (isInside) 10000L else NOTIFICATION_COOLDOWN // 10 segundos para retornos
+                    Log.d(TAG1, "[checkAllGeofencesStatus] Cooldown necessário: $cooldownTime")
+                    
+                    if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > cooldownTime) {
+                        lastNotificationTime[notificationKey] = currentTime
+                        
+                        if (!isInside) {
+                            // Usuário saiu da geofence
+                            Log.d(TAG1, "[checkAllGeofencesStatus] 🚪 Usuário saiu da geofence: ${geofence.name}")
+                            _showExitNotificationEvent.tryEmit(geofence.name)
+                            onGeofenceExit(geofence, location)
+                        } else {
+                            // Usuário voltou para a geofence
+                            Log.d(TAG1, "[checkAllGeofencesStatus] 🏠 Usuário voltou para a geofence: ${geofence.name}")
+                            Log.d(TAG1, "[checkAllGeofencesStatus] CHAMANDO onGeofenceReturn...")
+                            onGeofenceReturn(geofence, location)
+                        }
                     } else {
-                        // Usuário voltou para a geofence
-                        Log.d(TAG1, "Usuário voltou para a geofence: ${geofence.name}")
-                        onGeofenceReturn(geofence, location)
+                        Log.d(TAG1, "[checkAllGeofencesStatus] ⏰ Notificação ignorada devido ao cooldown para geofence: ${geofence.name}")
+                    }
+                } else {
+                    Log.d(TAG1, "[checkAllGeofencesStatus] ✅ Nenhuma mudança detectada para geofence: ${geofence.name}")
+                }
+                
+                // Verificação adicional para notificações periódicas
+                if (!isInside && previousStatus == false) {
+                    // Usuário continua fora da geofence - verificar se deve criar notificação periódica
+                    val periodicNotificationKey = "geofence_${geofenceId}_periodic"
+                    if (currentTime - (lastNotificationTime[periodicNotificationKey] ?: 0L) > PERIODIC_NOTIFICATION_INTERVAL) {
+                        lastNotificationTime[periodicNotificationKey] = currentTime
+                        Log.d(TAG1, "[checkAllGeofencesStatus] Criando notificação periódica para geofence: ${geofence.name}")
+                        onGeofenceExit(geofence, location) // Reutiliza a função de saída para notificação periódica
                     }
                 }
             }
         }
         
         _geofenceStatusMap.value = currentStatusMap
+        Log.d(TAG1, "[checkAllGeofencesStatus] geofenceStatusMap atualizado: $currentStatusMap")
         
         // Atualiza o status geral (se está dentro de alguma geofence)
         val isInsideAnyGeofence = currentStatusMap.values.any { it }
         _isUserInsideGeofence.value = isInsideAnyGeofence
+        Log.d(TAG1, "[checkAllGeofencesStatus] === FIM DA VERIFICAÇÃO ===")
     }
 
     /**
@@ -1100,44 +1299,60 @@ class MainViewModel(
      */
     private fun checkAllRoutesStatus(location: Location) {
         val activeRoutes = getActiveRoutesForToday()
-        Log.d(TAG1, "[checkAllRoutesStatus] Rotas ativas para hoje: ${activeRoutes.size}")
+        Log.d(TAG1, "[checkAllRoutesStatus] Rotas ativas para hoje: "+activeRoutes.size)
         
         val currentStatusMap = _routeStatusMap.value.toMutableMap()
         val currentTime = System.currentTimeMillis()
         
         activeRoutes.forEach { route ->
             val routeId = route.id ?: return@forEach
-            val isOnRoute = routeHelper.isLocationOnRoute(location, route)
+            val isOnRoute = routeHelper.isLocationOnRoute(location, route, forceCheck = true)
             val previousStatus = currentStatusMap[routeId]
             
-            // Atualiza o status atual
-            currentStatusMap[routeId] = isOnRoute
+            Log.d(TAG1, "[checkAllRoutesStatus] Rota ${route.name}: previousStatus=$previousStatus, isOnRoute=$isOnRoute")
             
-            // Verifica se houve mudança de status
-            if (previousStatus != null && previousStatus != isOnRoute) {
-                val notificationKey = "route_${routeId}_${if (isOnRoute) "return" else "exit"}"
+            // Se é a primeira verificação (previousStatus == null), apenas inicializa o status, sem notificação
+            if (previousStatus == null) {
+                currentStatusMap[routeId] = isOnRoute
+                Log.d(TAG1, "[checkAllRoutesStatus] Primeira verificação para rota ${route.name}: isOnRoute=$isOnRoute (sem notificação)")
+            } else {
+                // Atualiza o status atual
+                currentStatusMap[routeId] = isOnRoute
                 
-                // Verifica se já foi notificado recentemente
-                if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > NOTIFICATION_COOLDOWN) {
-                    lastNotificationTime[notificationKey] = currentTime
-                    
-                    if (!isOnRoute) {
-                        // Usuário saiu da rota
-                        Log.d(TAG1, "[checkAllRoutesStatus] Usuário saiu da rota: ${route.name}")
-                        _showRouteExitNotificationEvent.tryEmit(route.name)
-                        onRouteDeviation(route, location)
+                // Verifica se houve mudança de status
+                if (previousStatus != isOnRoute) {
+                    val notificationKey = "route_${routeId}_${if (isOnRoute) "return" else "exit"}"
+                    // Verifica se já foi notificado recentemente (reduzido para 10 segundos para retornos)
+                    val cooldownTime = if (isOnRoute) 10000L else NOTIFICATION_COOLDOWN // 10 segundos para retornos
+                    if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > cooldownTime) {
+                        lastNotificationTime[notificationKey] = currentTime
+                        if (!isOnRoute) {
+                            // Usuário saiu da rota
+                            Log.d(TAG1, "[checkAllRoutesStatus] Usuário saiu da rota: ${route.name}")
+                            _showRouteExitNotificationEvent.tryEmit(route.name)
+                            onRouteDeviation(route, location)
+                        } else {
+                            // Usuário voltou para a rota
+                            Log.d(TAG1, "[checkAllRoutesStatus] Usuário voltou para a rota: ${route.name}")
+                            onRouteReturn(route, location)
+                        }
                     } else {
-                        // Usuário voltou para a rota
-                        Log.d(TAG1, "[checkAllRoutesStatus] Usuário voltou para a rota: ${route.name}")
-                        onRouteReturn(route, location)
+                        Log.d(TAG1, "[checkAllRoutesStatus] Notificação ignorada devido ao cooldown para rota: ${route.name}")
                     }
-                } else {
-                    Log.d(TAG1, "[checkAllRoutesStatus] Notificação ignorada devido ao cooldown para rota: ${route.name}")
+                } else if (!isOnRoute && previousStatus == false) {
+                    // Usuário continua fora da rota - verificar se deve criar notificação periódica
+                    val periodicNotificationKey = "route_${routeId}_periodic"
+                    if (currentTime - (lastNotificationTime[periodicNotificationKey] ?: 0L) > PERIODIC_NOTIFICATION_INTERVAL) {
+                        lastNotificationTime[periodicNotificationKey] = currentTime
+                        Log.d(TAG1, "[checkAllRoutesStatus] Criando notificação periódica para rota: ${route.name}")
+                        onRouteDeviation(route, location) // Reutiliza a função de desvio para notificação periódica
+                    }
                 }
             }
         }
         
         _routeStatusMap.value = currentStatusMap
+        Log.d(TAG1, "[checkAllRoutesStatus] routeStatusMap atualizado: $currentStatusMap")
         
         // Atualiza o status geral (se está em alguma rota)
         val isOnAnyRoute = currentStatusMap.values.any { it }
@@ -1148,7 +1363,9 @@ class MainViewModel(
      * Obtém o nome do dependente atual
      */
     private fun getCurrentDependentName(): String? {
-        return _currentUser.value?.name
+        val name = _currentUser.value?.name
+        Log.d(TAG1, "[getCurrentDependentName] Nome do dependente: $name")
+        return name
     }
 
     /**
@@ -1164,32 +1381,40 @@ class MainViewModel(
     private fun onGeofenceExit(geofence: Geofence, location: Location) {
         val childName = getCurrentDependentName()
         val horario = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("pt", "BR")).format(Date())
+        Log.d(TAG1, "[onGeofenceExit] Chamado para geofence: ${geofence.name}, userId: $currentUserId, childName: $childName, location: (${location.latitude}, ${location.longitude})")
+        if (currentUserId == null) {
+            Log.e(TAG1, "[onGeofenceExit] currentUserId está nulo! Não é possível salvar notificação.")
+            return
+        }
         
         getLocationAddress(location) { address ->
             val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
-            val notificacao = NotificationHistoryEntry(
-                id = null,
-                titulo = "Saída de Área Segura",
+        val notificacao = NotificationHistoryEntry(
+            id = null,
+            titulo = "Saída de Área Segura",
                 body = "${childName ?: "Dependente"} saiu da área segura '${geofence.name}' às $horario. $locationInfo",
-                childId = currentUserId,
-                childName = childName,
-                tipoEvento = "saida_geofence",
-                latitude = location.latitude,
-                longitude = location.longitude,
-                horarioEvento = horario,
-                contagemTempo = System.currentTimeMillis(),
-                lida = false
-            )
-            
-            // Salva para dependente e responsável
-            currentUserId?.let { userId ->
-                firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
-                    if (!success) {
-                        Log.e(TAG1, "Erro ao salvar notificação de saída de geofence: ${exception?.message}")
-                    } else {
-                        Log.d(TAG1, "Notificação de saída de geofence salva com sucesso")
-                    }
+            childId = currentUserId,
+            childName = childName,
+            tipoEvento = "saida_geofence",
+            latitude = location.latitude,
+            longitude = location.longitude,
+            horarioEvento = horario,
+            contagemTempo = System.currentTimeMillis(),
+            lida = false
+        )
+            Log.d(TAG1, "[onGeofenceExit] Notificação criada: $notificacao")
+        
+        // Salva para dependente e responsável
+        currentUserId?.let { userId ->
+            firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
+                if (!success) {
+                        Log.e(TAG1, "[onGeofenceExit] Erro ao salvar notificação de saída de geofence: ${exception?.message}")
+                } else {
+                        Log.d(TAG1, "[onGeofenceExit] Notificação de saída de geofence salva com sucesso para userId: $userId")
                 }
+                }
+            } ?: run {
+                Log.e(TAG1, "[onGeofenceExit] currentUserId nulo no momento de salvar notificação!")
             }
         }
     }
@@ -1198,9 +1423,17 @@ class MainViewModel(
     private fun onGeofenceReturn(geofence: Geofence, location: Location) {
         val childName = getCurrentDependentName()
         val horario = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("pt", "BR")).format(Date())
+        Log.d(TAG1, "[onGeofenceReturn] Chamado para geofence: ${geofence.name}, userId: $currentUserId, childName: $childName, location: (${location.latitude}, ${location.longitude})")
+        if (currentUserId == null) {
+            Log.e(TAG1, "[onGeofenceReturn] currentUserId está nulo! Não é possível salvar notificação.")
+            return
+        }
         
+        Log.d(TAG1, "[onGeofenceReturn] Iniciando obtenção de endereço...")
         getLocationAddress(location) { address ->
             val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
+            Log.d(TAG1, "[onGeofenceReturn] Endereço obtido: $locationInfo")
+            
             val notificacao = NotificationHistoryEntry(
                 id = null,
                 titulo = "Retorno à Área Segura",
@@ -1214,16 +1447,20 @@ class MainViewModel(
                 contagemTempo = System.currentTimeMillis(),
                 lida = false
             )
-            
+            Log.d(TAG1, "[onGeofenceReturn] Notificação criada: $notificacao")
+        
             // Salva para dependente e responsável
             currentUserId?.let { userId ->
+                Log.d(TAG1, "[onGeofenceReturn] Chamando saveNotificationToBothUsers para userId: $userId")
                 firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
                     if (!success) {
-                        Log.e(TAG1, "Erro ao salvar notificação de retorno à geofence: ${exception?.message}")
+                        Log.e(TAG1, "[onGeofenceReturn] Erro ao salvar notificação de retorno à geofence: ${exception?.message}")
                     } else {
-                        Log.d(TAG1, "Notificação de retorno à geofence salva com sucesso")
+                        Log.d(TAG1, "[onGeofenceReturn] Notificação de retorno à geofence salva com sucesso para userId: $userId")
                     }
                 }
+            } ?: run {
+                Log.e(TAG1, "[onGeofenceReturn] currentUserId nulo no momento de salvar notificação!")
             }
         }
     }
@@ -1239,26 +1476,26 @@ class MainViewModel(
         }
         getLocationAddress(location) { address ->
             val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
-            val notificacao = NotificationHistoryEntry(
-                id = null,
-                titulo = "Desvio de Rota",
+        val notificacao = NotificationHistoryEntry(
+            id = null,
+            titulo = "Desvio de Rota",
                 body = "${childName ?: "Dependente"} saiu da rota '${route.name}' às $horario. $locationInfo",
-                childId = currentUserId,
-                childName = childName,
+            childId = currentUserId,
+            childName = childName,
                 tipoEvento = "saida_rota",
-                latitude = location.latitude,
-                longitude = location.longitude,
-                horarioEvento = horario,
-                contagemTempo = System.currentTimeMillis(),
-                lida = false
-            )
+            latitude = location.latitude,
+            longitude = location.longitude,
+            horarioEvento = horario,
+            contagemTempo = System.currentTimeMillis(),
+            lida = false
+        )
             Log.d(TAG1, "[onRouteDeviation] Notificação criada: $notificacao")
-            // Salva para dependente e responsável
-            currentUserId?.let { userId ->
-                firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
-                    if (!success) {
+        // Salva para dependente e responsável
+        currentUserId?.let { userId ->
+            firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
+                if (!success) {
                         Log.e(TAG1, "[onRouteDeviation] Erro ao salvar notificação de desvio de rota: ${exception?.message}")
-                    } else {
+                } else {
                         Log.d(TAG1, "[onRouteDeviation] Notificação de desvio de rota salva com sucesso para userId: $userId")
                     }
                 }
@@ -1272,9 +1509,17 @@ class MainViewModel(
     private fun onRouteReturn(route: Route, location: Location) {
         val childName = getCurrentDependentName()
         val horario = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("pt", "BR")).format(Date())
+        Log.d(TAG1, "[onRouteReturn] Chamado para rota: ${route.name}, userId: $currentUserId, childName: $childName, location: (${location.latitude}, ${location.longitude})")
+        if (currentUserId == null) {
+            Log.e(TAG1, "[onRouteReturn] currentUserId está nulo! Não é possível salvar notificação.")
+            return
+        }
         
+        Log.d(TAG1, "[onRouteReturn] Iniciando obtenção de endereço...")
         getLocationAddress(location) { address ->
             val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
+            Log.d(TAG1, "[onRouteReturn] Endereço obtido: $locationInfo")
+            
             val notificacao = NotificationHistoryEntry(
                 id = null,
                 titulo = "Retorno à Rota",
@@ -1289,16 +1534,196 @@ class MainViewModel(
                 lida = false
             )
             
+            Log.d(TAG1, "[onRouteReturn] Notificação criada: $notificacao")
+            
             // Salva para dependente e responsável
             currentUserId?.let { userId ->
+                Log.d(TAG1, "[onRouteReturn] Chamando saveNotificationToBothUsers para userId: $userId")
                 firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
                     if (!success) {
-                        Log.e(TAG1, "Erro ao salvar notificação de retorno à rota: ${exception?.message}")
+                        Log.e(TAG1, "[onRouteReturn] Erro ao salvar notificação de retorno à rota: ${exception?.message}")
                     } else {
-                        Log.d(TAG1, "Notificação de retorno à rota salva com sucesso")
+                        Log.d(TAG1, "[onRouteReturn] Notificação de retorno à rota salva com sucesso para userId: $userId")
                     }
                 }
+            } ?: run {
+                Log.e(TAG1, "[onRouteReturn] currentUserId nulo no momento de salvar notificação!")
             }
+        }
+    }
+
+    /**
+     * Função de teste para forçar criação de notificação de retorno à geofence
+     */
+    fun testGeofenceReturnNotification() {
+        Log.d(TAG1, "[testGeofenceReturnNotification] Testando criação de notificação de retorno à geofence")
+        currentUserId?.let { userId ->
+            val testGeofence = Geofence(
+                id = "test_geofence",
+                name = "Geofence de Teste",
+                coordinates = Coordinate(-23.550520, -46.633308),
+                radius = 100f,
+                isActive = true,
+                targetUserId = userId,
+                createdByUserId = userId
+            )
+            val testLocation = Location("test").apply {
+                latitude = -23.550520
+                longitude = -46.633308
+            }
+            onGeofenceReturn(testGeofence, testLocation)
+        } ?: run {
+            Log.e(TAG1, "[testGeofenceReturnNotification] currentUserId é nulo!")
+        }
+    }
+
+    /**
+     * Função de teste para forçar criação de notificação de retorno à rota
+     */
+    fun testRouteReturnNotification() {
+        Log.d(TAG1, "[testRouteReturnNotification] Testando criação de notificação de retorno à rota")
+        currentUserId?.let { userId ->
+            val testRoute = Route(
+                id = "test_route",
+                name = "Rota de Teste",
+                origin = RoutePoint(-23.550520, -46.633308),
+                destination = RoutePoint(-23.550520, -46.633308),
+                waypoints = emptyList(),
+                encodedPolyline = "",
+                routeColor = "#3F51B5",
+                isActive = true,
+                activeDays = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta"),
+                targetUserId = userId,
+                createdByUserId = userId
+            )
+            val testLocation = Location("test").apply {
+                latitude = -23.550520
+                longitude = -46.633308
+            }
+            onRouteReturn(testRoute, testLocation)
+        } ?: run {
+            Log.e(TAG1, "[testRouteReturnNotification] currentUserId é nulo!")
+        }
+    }
+
+    /**
+     * Função para limpar o cache de notificações e forçar nova verificação
+     */
+    fun clearNotificationCache() {
+        Log.d(TAG1, "[clearNotificationCache] Limpando cache de notificações")
+        lastNotificationTime.clear()
+        _geofenceStatusMap.value = emptyMap()
+        _routeStatusMap.value = emptyMap()
+        Log.d(TAG1, "[clearNotificationCache] Cache limpo. Próxima verificação de localização irá redefinir todos os status")
+        
+        // Força uma nova verificação com a localização atual
+        _currentLocation.value?.let { location ->
+            Log.d(TAG1, "[clearNotificationCache] Forçando nova verificação com localização atual: (${location.latitude}, ${location.longitude})")
+            checkAllGeofencesStatus(location)
+            checkAllRoutesStatus(location)
+            
+            // Forçar verificação específica para geofences e rotas
+            Log.d(TAG1, "[clearNotificationCache] Forçando verificação específica de geofences e rotas")
+            forceGeofenceStatusCheck()
+            forceRouteStatusCheck()
+        } ?: run {
+            Log.d(TAG1, "[clearNotificationCache] Nenhuma localização atual disponível")
+        }
+    }
+
+    /**
+     * Função para forçar verificação de status após atualização de geofence
+     */
+    private fun forceGeofenceStatusCheck() {
+        Log.d(TAG1, "[forceGeofenceStatusCheck] Forçando verificação de status das geofences")
+        _currentLocation.value?.let { location ->
+            Log.d(TAG1, "[forceGeofenceStatusCheck] Verificando com localização: (${location.latitude}, ${location.longitude})")
+            
+            // Limpar cache de notificações para esta verificação específica
+            val currentTime = System.currentTimeMillis()
+            val activeGeofences = getActiveGeofencesForUser()
+            val currentStatusMap = _geofenceStatusMap.value.toMutableMap()
+            
+            activeGeofences.forEach { geofence ->
+                val geofenceId = geofence.id ?: return@forEach
+                val isInside = geofenceHelperClass.isLocationInGeofence(location, geofence)
+                val previousStatus = currentStatusMap[geofenceId]
+                
+                Log.d(TAG1, "[forceGeofenceStatusCheck] Geofence ${geofence.name}: previousStatus=$previousStatus, isInside=$isInside")
+                
+                // Se há mudança de status, gerar notificação imediatamente
+                if (previousStatus != null && previousStatus != isInside) {
+                    Log.d(TAG1, "[forceGeofenceStatusCheck] 🔄 Mudança detectada: $previousStatus -> $isInside")
+                    
+                    val notificationKey = "geofence_${geofenceId}_${if (isInside) "return" else "exit"}"
+                    lastNotificationTime[notificationKey] = currentTime
+                    
+                    if (!isInside) {
+                        Log.d(TAG1, "[forceGeofenceStatusCheck] 🚪 Usuário saiu da geofence: ${geofence.name}")
+                        _showExitNotificationEvent.tryEmit(geofence.name)
+                        onGeofenceExit(geofence, location)
+                    } else {
+                        Log.d(TAG1, "[forceGeofenceStatusCheck] 🏠 Usuário voltou para a geofence: ${geofence.name}")
+                        onGeofenceReturn(geofence, location)
+                    }
+                }
+                
+                // Atualizar status
+                currentStatusMap[geofenceId] = isInside
+            }
+            
+            _geofenceStatusMap.value = currentStatusMap
+            Log.d(TAG1, "[forceGeofenceStatusCheck] Status atualizado: $currentStatusMap")
+        } ?: run {
+            Log.w(TAG1, "[forceGeofenceStatusCheck] Nenhuma localização atual disponível")
+        }
+    }
+
+    /**
+     * Função para forçar verificação de status após atualização de rota
+     */
+    private fun forceRouteStatusCheck() {
+        Log.d(TAG1, "[forceRouteStatusCheck] Forçando verificação de status das rotas")
+        _currentLocation.value?.let { location ->
+            Log.d(TAG1, "[forceRouteStatusCheck] Verificando com localização: (${location.latitude}, ${location.longitude})")
+            
+            // Limpar cache de notificações para esta verificação específica
+            val currentTime = System.currentTimeMillis()
+            val activeRoutes = getActiveRoutesForToday()
+            val currentStatusMap = _routeStatusMap.value.toMutableMap()
+            
+            activeRoutes.forEach { route ->
+                val routeId = route.id ?: return@forEach
+                val isOnRoute = routeHelper.isLocationOnRoute(location, route, forceCheck = true)
+                val previousStatus = currentStatusMap[routeId]
+                
+                Log.d(TAG1, "[forceRouteStatusCheck] Rota ${route.name}: previousStatus=$previousStatus, isOnRoute=$isOnRoute")
+                
+                // Se há mudança de status, gerar notificação imediatamente
+                if (previousStatus != null && previousStatus != isOnRoute) {
+                    Log.d(TAG1, "[forceRouteStatusCheck] 🔄 Mudança detectada: $previousStatus -> $isOnRoute")
+                    
+                    val notificationKey = "route_${routeId}_${if (isOnRoute) "return" else "exit"}"
+                    lastNotificationTime[notificationKey] = currentTime
+                    
+                    if (!isOnRoute) {
+                        Log.d(TAG1, "[forceRouteStatusCheck] 🚪 Usuário saiu da rota: ${route.name}")
+                        _showRouteExitNotificationEvent.tryEmit(route.name)
+                        onRouteDeviation(route, location)
+                    } else {
+                        Log.d(TAG1, "[forceRouteStatusCheck] 🏠 Usuário voltou para a rota: ${route.name}")
+                        onRouteReturn(route, location)
+                    }
+                }
+                
+                // Atualizar status
+                currentStatusMap[routeId] = isOnRoute
+            }
+            
+            _routeStatusMap.value = currentStatusMap
+            Log.d(TAG1, "[forceRouteStatusCheck] Status atualizado: $currentStatusMap")
+        } ?: run {
+            Log.w(TAG1, "[forceRouteStatusCheck] Nenhuma localização atual disponível")
         }
     }
 

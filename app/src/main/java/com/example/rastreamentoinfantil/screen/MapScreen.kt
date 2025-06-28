@@ -30,6 +30,7 @@ import com.google.android.gms.maps.model.LatLng
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 import com.example.rastreamentoinfantil.model.Coordinate
 import com.example.rastreamentoinfantil.model.Geofence
+import com.example.rastreamentoinfantil.model.RoutePoint
 import com.example.rastreamentoinfantil.screen.AppDestinations.ROUTE_LIST_SCREEN
 import com.example.rastreamentoinfantil.screen.AppDestinations.FAMILY_SCREEN
 import com.example.rastreamentoinfantil.model.Route
@@ -81,6 +82,9 @@ fun MapScreen(
     val activeGeofences = remember(geofences) {
         mainViewModel.getActiveGeofencesForUser()
     }
+    
+    // Observar status de cada geofence
+    val geofenceStatusMap by mainViewModel.geofenceStatusMap.collectAsStateWithLifecycle()
 
     var isEditingGeofence by remember { mutableStateOf(false) }
     var newGeofenceCenter by remember { mutableStateOf<LatLng?>(null) }
@@ -292,9 +296,13 @@ fun MapScreen(
                 // Geofences ativas
                 activeGeofences.forEach { geofence ->
                     val centerLatLng = LatLng(geofence.coordinates.latitude, geofence.coordinates.longitude)
+                    
+                    // Determinar cor baseada no status da geofence e localização do usuário
                     val strokeColor = when {
-                        geofence.isActive -> Color(android.graphics.Color.parseColor(geofence.color ?: "#3F51B5"))
-                        else -> Color.Gray.copy(alpha = 0.7f)
+                        currentLocation == null -> Color.Gray.copy(alpha = 0.7f) // Sem localização = cinza
+                        geofenceStatusMap[geofence.id] == true -> Color.Green.copy(alpha = 0.8f) // Dentro = verde
+                        geofenceStatusMap[geofence.id] == false -> Color.Red.copy(alpha = 0.8f) // Fora = vermelho
+                        else -> Color.Gray.copy(alpha = 0.7f) // Status desconhecido = cinza
                     }
                     val fillColor = strokeColor.copy(alpha = 0.2f)
                     
@@ -305,10 +313,19 @@ fun MapScreen(
                         strokeWidth = 3f,
                         fillColor = fillColor
                     )
+                    
+                    // Determinar texto do snippet baseado no status
+                    val statusText = when {
+                        currentLocation == null -> "Sem localização"
+                        geofenceStatusMap[geofence.id] == true -> "Dentro da área"
+                        geofenceStatusMap[geofence.id] == false -> "Fora da área"
+                        else -> "Status desconhecido"
+                    }
+                    
                     Marker(
                         state = MarkerState(position = centerLatLng),
                         title = geofence.name,
-                        snippet = "Raio: ${geofence.radius.toInt()}m - ${if(geofence.isActive) "Ativa" else "Inativa"}"
+                        snippet = "Raio: ${geofence.radius.toInt()}m - $statusText"
                     )
             }
 
@@ -338,61 +355,6 @@ fun MapScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator()
-                }
-            }
-
-            // Controles de edição de geofence (apenas quando estiver editando)
-            if (isEditingGeofence) {
-                Card(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(dimensions.paddingMediumDp)
-                        .fillMaxWidth()
-                        .widthIn(max = if (dimensions.isTablet) 400.dp else dimensions.screenWidth.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(dimensions.paddingMediumDp)
-                    ) {
-                        Text(
-                            "Raio da Geofence: ${newGeofenceRadius.toInt()} m",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                Slider(
-                    value = newGeofenceRadius,
-                    onValueChange = { newGeofenceRadius = it },
-                    valueRange = 50f..1000f,
-                            steps = ((1000f - 50f) / 50f).toInt() - 1
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(dimensions.paddingSmallDp)
-                        ) {
-                            Button(
-                                onClick = {
-                    newGeofenceCenter = currentGeofence?.let { LatLng(it.coordinates.latitude, it.coordinates.longitude) }
-                    newGeofenceRadius = currentGeofence?.radius ?: 100f
-                    isEditingGeofence = false
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Cancelar")
-                }
-                if (currentGeofence != null) {
-                                Button(
-                                    onClick = {
-                        mainViewModel.updateUserGeofence(null)
-                        isEditingGeofence = false
-                        newGeofenceCenter = null
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                                ) {
-                                    Text("Remover")
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
