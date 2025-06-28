@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -151,7 +152,14 @@ fun NotificationHistoryScreen(
                         }
                         
                         items(notifications) { notification ->
-                            NotificationCard(notification = notification)
+                            NotificationCard(
+                                notification = notification,
+                                onMarkAsRead = { 
+                                    notification.id?.let { notificationId ->
+                                        viewModel.markAsRead(notificationId, userId)
+                                    }
+                                }
+                            )
                         }
                     }
                 }
@@ -181,12 +189,24 @@ fun NotificationHistoryScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotificationCard(notification: NotificationHistoryEntry) {
+fun NotificationCard(notification: NotificationHistoryEntry, onMarkAsRead: () -> Unit) {
     val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR"))
     
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { 
+                if (!notification.lida) {
+                    onMarkAsRead()
+                }
+            },
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (!notification.lida) 
+                MaterialTheme.colorScheme.surface 
+            else 
+                MaterialTheme.colorScheme.surfaceVariant
+        )
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -302,24 +322,49 @@ fun NotificationCard(notification: NotificationHistoryEntry) {
                 }
             }
             
-            // Status de leitura
-            if (!notification.lida) {
-                Spacer(modifier = Modifier.height(8.dp))
+            // Status de leitura (sempre mostrar)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Default.FiberManualRecord,
+                        if (!notification.lida) Icons.Default.FiberManualRecord else Icons.Default.CheckCircle,
                         contentDescription = null,
                         modifier = Modifier.size(8.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = if (!notification.lida) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Não lida",
+                        text = if (!notification.lida) "Não lida" else "Lida",
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary
+                        color = if (!notification.lida) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                     )
+                }
+                
+                // Botão para marcar como lida (apenas para não lidas)
+                if (!notification.lida) {
+                    TextButton(
+                        onClick = onMarkAsRead,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Marcar como lida",
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             }
         }

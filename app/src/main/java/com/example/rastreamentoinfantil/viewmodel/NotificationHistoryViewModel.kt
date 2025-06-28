@@ -1,5 +1,6 @@
 package com.example.rastreamentoinfantil.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.rastreamentoinfantil.model.NotificationHistoryEntry
@@ -283,8 +284,30 @@ class NotificationHistoryViewModel(
     }
 
     fun markAsRead(notificationId: String, userId: String) {
-        // TODO: Implementar marcação como lida
-        // firebaseRepository.markNotificationAsRead(userId, notificationId)
+        if (userId.isEmpty() || notificationId.isEmpty()) {
+            _error.value = "ID do usuário ou da notificação não fornecido"
+            return
+        }
+
+        viewModelScope.launch {
+            firebaseRepository.markNotificationAsRead(userId, notificationId) { success, exception ->
+                if (success) {
+                    // Atualizar a lista local de notificações
+                    val updatedNotifications = _allNotifications.value.map { notification ->
+                        if (notification.id == notificationId) {
+                            notification.copy(lida = true)
+                        } else {
+                            notification
+                        }
+                    }
+                    _allNotifications.value = updatedNotifications
+                    Log.d("NotificationHistoryViewModel", "Notificação $notificationId marcada como lida")
+                } else {
+                    _error.value = "Erro ao marcar notificação como lida: ${exception?.message}"
+                    Log.e("NotificationHistoryViewModel", "Erro ao marcar notificação como lida", exception)
+                }
+            }
+        }
     }
 
     fun clearError() {

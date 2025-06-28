@@ -1940,4 +1940,26 @@ class FirebaseRepository {
             }
         }
     }
+
+    fun markNotificationAsRead(userId: String, notificationId: String, onComplete: (Boolean, Exception?) -> Unit) {
+        Log.d(TAG, "[markNotificationAsRead] Marcando notificação como lida. userId: $userId, notificationId: $notificationId")
+        
+        if (userId.isEmpty() || notificationId.isEmpty()) {
+            Log.w(TAG, "[markNotificationAsRead] userId ou notificationId está vazio.")
+            onComplete(false, IllegalArgumentException("userId ou notificationId está vazio."))
+            return
+        }
+
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .collection(NOTIFICATION_HISTORY_COLLECTION).document(notificationId)
+            .update("lida", true)
+            .addOnSuccessListener {
+                Log.d(TAG, "[markNotificationAsRead] Notificação '$notificationId' marcada como lida para o usuário $userId")
+                onComplete(true, null)
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "[markNotificationAsRead] Erro ao marcar notificação '$notificationId' como lida para o usuário $userId", e)
+                onComplete(false, e)
+            }
+    }
 }
