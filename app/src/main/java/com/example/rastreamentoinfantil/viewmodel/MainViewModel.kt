@@ -174,6 +174,13 @@ class MainViewModel(
         val deviationDistance: Double
     )
 
+    // Estados para localizações e informações dos dependentes
+    private val _dependentsLocations = MutableStateFlow<Map<String, LocationRecord>>(emptyMap())
+    val dependentsLocations: StateFlow<Map<String, LocationRecord>> = _dependentsLocations.asStateFlow()
+
+    private val _dependentsInfo = MutableStateFlow<Map<String, User>>(emptyMap())
+    val dependentsInfo: StateFlow<Map<String, User>> = _dependentsInfo.asStateFlow()
+
     init {
         Log.d(TAG1, "Inicializando MainViewModel")
         
@@ -1745,6 +1752,42 @@ class MainViewModel(
             Log.d(TAG1, "[forceRouteStatusCheck] Status atualizado: $currentStatusMap")
         } ?: run {
             Log.w(TAG1, "[forceRouteStatusCheck] Nenhuma localização atual disponível")
+        }
+    }
+
+    // Carrega localizações dos dependentes
+    fun loadDependentsLocations(familyId: String) {
+        if (!_isResponsible.value) return // Apenas responsáveis
+        firebaseRepository.getDependentsLocations(familyId) { locations, exception ->
+            if (exception != null) {
+                Log.e(TAG1, "Erro ao carregar localizações dos dependentes", exception)
+                return@getDependentsLocations
+            }
+            _dependentsLocations.value = locations ?: emptyMap()
+            // Buscar informações dos dependentes
+            loadDependentsInfo(familyId)
+        }
+    }
+
+    // Carrega informações dos dependentes
+    private fun loadDependentsInfo(familyId: String) {
+        firebaseRepository.getFamilyDetails(familyId) { family, members, error ->
+            if (error != null || members == null) {
+                _dependentsInfo.value = emptyMap()
+                return@getFamilyDetails
+            }
+            val dependentsMap = members.filter { it.type == "membro" && it.id != null }.associateBy { it.id!! }
+            _dependentsInfo.value = dependentsMap
+        }
+    }
+
+    // Inicia atualização periódica das localizações dos dependentes
+    fun startDependentsLocationUpdates(familyId: String) {
+        viewModelScope.launch {
+            while (isLocationMonitoringActive && _isResponsible.value) {
+                loadDependentsLocations(familyId)
+                kotlinx.coroutines.delay(30000) // 30 segundos
+            }
         }
     }
 

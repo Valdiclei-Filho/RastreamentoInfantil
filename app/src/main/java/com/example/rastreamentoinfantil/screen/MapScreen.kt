@@ -143,6 +143,18 @@ fun MapScreen(
         }
     }
 
+    val dependentsLocations by mainViewModel.dependentsLocations.collectAsStateWithLifecycle()
+    val dependentsInfo by mainViewModel.dependentsInfo.collectAsStateWithLifecycle()
+    val currentUser = mainViewModel.currentUser.value
+    val familyId = currentUser?.familyId
+
+    // Iniciar atualização periódica das localizações dos dependentes ao abrir a tela (apenas para responsáveis)
+    LaunchedEffect(isResponsible, familyId) {
+        if (isResponsible && familyId != null) {
+            mainViewModel.startDependentsLocationUpdates(familyId)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -292,6 +304,24 @@ fun MapScreen(
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
                 )
             }
+
+                // Exibir marcadores dos dependentes (apenas para responsáveis)
+                if (isResponsible) {
+                    dependentsLocations.forEach { (dependentId, locationRecord) ->
+                        val dependentInfo = dependentsInfo[dependentId]
+                        val dependentName = dependentInfo?.name ?: "Dependente"
+                        val lat = locationRecord.latitude
+                        val lng = locationRecord.longitude
+                        if (lat != null && lng != null) {
+                            Marker(
+                                state = MarkerState(position = LatLng(lat, lng)),
+                                title = dependentName,
+                                snippet = "Última localização: ${locationRecord.dateTime}",
+                                icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE)
+                            )
+                        }
+                    }
+                }
 
                 // Geofences ativas
                 activeGeofences.forEach { geofence ->

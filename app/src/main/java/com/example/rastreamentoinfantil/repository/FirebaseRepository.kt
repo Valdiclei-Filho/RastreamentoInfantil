@@ -2341,4 +2341,51 @@ class FirebaseRepository {
                 callback(false, "Erro ao buscar família: ${e.message}")
             }
     }
+
+    /**
+     * Busca a última localização de cada dependente da família
+     */
+    fun getDependentsLocations(familyId: String, onComplete: (Map<String, LocationRecord>?, Exception?) -> Unit) {
+        firestore.collection(USERS_COLLECTION)
+            .whereEqualTo("familyId", familyId)
+            .whereEqualTo("type", "membro")
+            .get()
+            .addOnSuccessListener { userDocs ->
+                val dependents = userDocs.documents.mapNotNull { it.toObject(User::class.java) }
+                if (dependents.isEmpty()) {
+                    onComplete(emptyMap(), null)
+                    return@addOnSuccessListener
+                }
+                val dependentsLocations = mutableMapOf<String, LocationRecord>()
+                var completedQueries = 0
+                val totalQueries = dependents.size
+                dependents.forEach { dependent ->
+                    firestore.collection(USERS_COLLECTION)
+                        .document(dependent.id!!)
+                        .collection(LOCATION_RECORDS_COLLECTION)
+                        .orderBy("dateTime", Query.Direction.DESCENDING)
+                        .limit(1)
+                        .get()
+                        .addOnSuccessListener { locationDocs ->
+                            val latestLocation = locationDocs.documents.firstOrNull()?.toObject(LocationRecord::class.java)
+                            if (latestLocation != null) {
+                                dependentsLocations[dependent.id!!] = latestLocation
+                            }
+                            completedQueries++
+                            if (completedQueries == totalQueries) {
+                                onComplete(dependentsLocations, null)
+                            }
+                        }
+                        .addOnFailureListener { _ ->
+                            completedQueries++
+                            if (completedQueries == totalQueries) {
+                                onComplete(dependentsLocations, null)
+                            }
+                        }
+                }
+            }
+            .addOnFailureListener { e ->
+                onComplete(null, e)
+            }
+    }
 }
