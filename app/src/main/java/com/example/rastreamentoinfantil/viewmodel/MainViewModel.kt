@@ -1465,6 +1465,8 @@ class MainViewModel(
                         Log.d(TAG1, "[onGeofenceExit] Notificação de saída de geofence salva com sucesso para userId: $userId")
                         // Enviar push para responsável e dependente
                         firebaseRepository.getResponsibleForDependent(userId) { relationship, error ->
+                            Log.d(TAG1, "[RELATIONSHIP] -> $relationship")
+                            Log.d(TAG1, "[USER ID] -> $userId")
                             if (relationship != null) {
                                 firebaseRepository.sendPushNotification(
                                     dependentId = userId,
