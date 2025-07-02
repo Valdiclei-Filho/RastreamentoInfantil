@@ -71,7 +71,7 @@ fun MapScreen(
     )[LoginViewModel::class.java]
 
     val currentLocation by mainViewModel.currentLocation.collectAsState()
-    val currentGeofence by mainViewModel.geofenceArea.collectAsState()
+    // REMOVIDO: currentGeofence - agora o sistema usa múltiplas geofences
     val isInsideGeofence by mainViewModel.isUserInsideGeofence.collectAsState()
     val routes by mainViewModel.routes.collectAsState()
     val isLoadingRoutes by mainViewModel.isLoadingRoutes.collectAsState()
@@ -118,12 +118,7 @@ fun MapScreen(
         }
     }
 
-    LaunchedEffect(currentGeofence) {
-        if (!isEditingGeofence) {
-            newGeofenceCenter = currentGeofence?.let { LatLng(it.coordinates.latitude, it.coordinates.longitude) }
-            newGeofenceRadius = currentGeofence?.radius ?: 100f
-        }
-    }
+    // REMOVIDO: LaunchedEffect(currentGeofence) - agora o sistema usa múltiplas geofences
 
     // Filtrar rotas ativas para o dia atual
     val activeRoutesForToday = remember(routes) {

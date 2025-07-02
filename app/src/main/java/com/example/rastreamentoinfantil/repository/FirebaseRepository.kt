@@ -205,84 +205,14 @@ class FirebaseRepository {
             }
     }
 
-    fun saveUserActiveGeofence(userId: String, geofence: Geofence, onComplete: (Boolean, Exception?) -> Unit) {
-        if (userId.isEmpty()) {
-            Log.w(TAG, "saveUserActiveGeofence: userId está vazio.")
-            onComplete(false, IllegalArgumentException("userId está vazio."))
-            return
-        }
-        firestore.collection(USERS_COLLECTION).document(userId)
-            .collection(GEOFENCES_COLLECTION)
-            .document("user_geofence")
-            .set(geofence, SetOptions.merge())
-            .addOnSuccessListener {
-                Log.d(TAG, "Geofence ativa salva/atualizada para o usuário $userId. ID da Geofence: ${geofence.id}")
-                onComplete(true, null)
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Erro ao salvar/atualizar geofence ativa para o usuário $userId", e)
-                onComplete(false, e)
-            }
-    }
+    // REMOVIDO: saveUserActiveGeofence - agora o sistema usa múltiplas geofences
+    // A função saveGeofence() já existe e suporta múltiplas geofences
 
-    fun getUserActiveGeofence(userId: String, onComplete: (Geofence?, Exception?) -> Unit) {
-        if (userId.isEmpty()) {
-            Log.w(TAG, "getUserActiveGeofence: userId está vazio.")
-            onComplete(null, IllegalArgumentException("userId está vazio."))
-            return
-        }
-        firestore.collection(USERS_COLLECTION).document(userId)
-            .collection(GEOFENCES_COLLECTION)
-            .document("user_geofence")
-            .get()
-            .addOnSuccessListener { document ->
-                if (document != null && document.exists()) {
-                    try {
-                        val geofence = document.toObject(Geofence::class.java)?.apply {
-                            // Garante que o ID seja sempre definido com o ID do documento
-                            this.id = document.id
-                        }
-                        if (geofence != null) {
-                            Log.d(TAG, "Geofence ativa obtida para o usuário $userId: ${geofence.name} (ID: ${geofence.id})")
-                            onComplete(geofence, null)
-                        } else {
-                            Log.w(TAG, "Falha ao converter documento para Geofence para o usuário $userId. Documento: ${document.data}")
-                            onComplete(null, Exception("Falha ao converter dados da geofence."))
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Erro ao parsear geofence ativa do Firestore para o usuário $userId", e)
-                        onComplete(null, e)
-                    }
-                } else {
-                    Log.d(TAG, "Nenhum documento de geofence ativa encontrado para o usuário $userId")
-                    onComplete(null, null)
-                }
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Erro ao buscar geofence ativa do Firestore para o usuário $userId", e)
-                onComplete(null, e)
-            }
-    }
+    // REMOVIDO: getUserActiveGeofence - agora o sistema usa múltiplas geofences
+    // A função getUserGeofences() já existe e retorna todas as geofences do usuário
 
-    fun deleteUserActiveGeofence(userId: String, onComplete: (Boolean, Exception?) -> Unit) {
-        if (userId.isEmpty()) {
-            Log.w(TAG, "deleteUserActiveGeofence: userId está vazio.")
-            onComplete(false, IllegalArgumentException("userId está vazio."))
-            return
-        }
-        firestore.collection(USERS_COLLECTION).document(userId)
-            .collection(GEOFENCES_COLLECTION)
-            .document("user_geofence")
-            .delete()
-            .addOnSuccessListener {
-                Log.d(TAG, "Geofence ativa deletada para o usuário $userId")
-                onComplete(true, null)
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Erro ao deletar geofence ativa para o usuário $userId", e)
-                onComplete(false, e)
-            }
-    }
+    // REMOVIDO: deleteUserActiveGeofence - agora o sistema usa múltiplas geofences
+    // A função deleteGeofence() já existe e suporta múltiplas geofences
 
     fun fetchUserData(callback: (User?, Exception?) -> Unit) {
         val currentFirebaseUser = auth.currentUser

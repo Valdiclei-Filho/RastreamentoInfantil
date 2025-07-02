@@ -73,8 +73,8 @@ class MainViewModel(
     val currentLocation: StateFlow<Location?> = _currentLocation.asStateFlow()
 
     // Este será o StateFlow que a UI e a lógica de notificação observam
-    private val _geofenceArea = MutableStateFlow<Geofence?>(null)
-    val geofenceArea: StateFlow<Geofence?> = _geofenceArea.asStateFlow()
+    // REMOVIDO: _geofenceArea e geofenceArea - agora o sistema usa múltiplas geofences
+    // Use geofences.value para acessar todas as geofences do usuário
 
     private val _isUserInsideGeofence = MutableStateFlow<Boolean?>(null)
     val isUserInsideGeofence: StateFlow<Boolean?> = _isUserInsideGeofence.asStateFlow()
@@ -111,7 +111,7 @@ class MainViewModel(
     val error: LiveData<String?> get() = _error
 
     // Removido: private var currentGeofence: Geofence? = null
-    // Usaremos _geofenceArea.value como a fonte da verdade para a geofence ativa
+            // REMOVIDO: Comentário sobre _geofenceArea - agora o sistema usa múltiplas geofences
     private var currentUserId: String? = null
     private var isLocationMonitoringActive: Boolean = false // Flag para controlar se o monitoramento está ativo
 
@@ -349,35 +349,18 @@ class MainViewModel(
         val currentUser = firebaseRepository.getCurrentUser()
         if (currentUser != null) {
             currentUserId = currentUser.uid
-            // Agora, loadUserGeofence irá popular _geofenceArea
-            loadUserGeofence(currentUserId!!)
+            // Carregar geofences do usuário
+            loadUserGeofences()
         } else {
             _isLoading.value = false
             _error.value = "Usuário não encontrado!"
-            _geofenceArea.value = null // Garante que nenhuma geofence antiga persista se o usuário deslogar
+            // REMOVIDO: _geofenceArea - agora o sistema usa múltiplas geofences
             println("Nenhum usuário logado, nenhuma geofence será carregada do Firebase.")
         }
     }
 
-    private fun loadUserGeofence(userId: String) {
-        firebaseRepository.getUserActiveGeofence(userId) { geofenceFromFirebase, exception -> // DOIS parâmetros
-            if (exception != null) {
-                _error.value = "Erro ao carregar geofence: ${exception.message}"
-                _isLoading.value = false // Certifique-se de parar o loading
-                return@getUserActiveGeofence
-            }
-
-            // Se exception for null, geofenceFromFirebase pode ser a geofence ou null se não encontrada
-            _geofenceArea.value = geofenceFromFirebase
-            _isLoading.value = false
-            if (geofenceFromFirebase != null) {
-                println("Geofence carregada: $geofenceFromFirebase")
-            } else {
-                println("Nenhuma geofence encontrada.")
-            }
-            loadLocationRecords()
-        }
-    }
+    // REMOVIDO: loadUserGeofence - agora o sistema usa múltiplas geofences
+    // A função loadUserGeofences() já existe e carrega todas as geofences do usuário
 
     private fun loadLocationRecords() {
         currentUserId?.let { userId ->
@@ -404,42 +387,8 @@ class MainViewModel(
         }
     }
 
-    // Função para permitir que a UI defina/atualize uma geofence
-    // Esta geofence deve então ser salva no Firebase para o usuário atual
-    fun updateUserGeofence(newGeofence: Geofence?) {
-        _geofenceArea.value = newGeofence // Atualiza imediatamente o StateFlow
-        currentUserId?.let { userId ->
-            if (newGeofence != null) {
-                _isLoading.value = true
-                firebaseRepository.saveUserActiveGeofence(userId, newGeofence) { success, exception -> // DOIS parâmetros
-                    _isLoading.value = false
-                    if (success) {
-                        println("Geofence salva no Firebase para o usuário $userId.")
-                    } else {
-                        _error.value = "Falha ao salvar geofence: ${exception?.message ?: "Erro desconhecido"}"
-                    }
-                }
-            } else { // Se newGeofence for null, significa que estamos limpando a geofence
-                _isLoading.value = true
-                firebaseRepository.deleteUserActiveGeofence(userId) { success, exception ->
-                    _isLoading.value = false
-                    if (success) {
-                        println("Geofence removida do Firebase para o usuário $userId.")
-                    } else {
-                        _error.value = "Falha ao remover geofence no Firebase."
-                    }
-                }
-            }
-        } ?: run {
-            _error.value = "ID do usuário não disponível para salvar/remover geofence."
-            if (newGeofence != null) {
-                // Se não houver usuário, mas uma geofence foi definida (ex: modo offline ou antes do login)
-                // você pode querer salvá-la localmente usando SharedPreferences como um fallback ou cache temporário.
-                // SharedPreferencesHelper.saveGeofence(getApplication(), newGeofence)
-                println("Nenhum usuário logado. A geofence definida não foi salva no Firebase.")
-            }
-        }
-    }
+    // REMOVIDO: updateUserGeofence - agora o sistema usa múltiplas geofences
+    // As funções createGeofence(), updateGeofence() e deleteGeofence() já existem
 
     fun retrieveAndSaveFcmToken(userId: String) {
         Log.d(TAG1, "[retrieveAndSaveFcmToken] Solicitando token FCM para userId: $userId")
@@ -724,7 +673,9 @@ class MainViewModel(
         routeColor: String = "#FF0000", // Cor padrão
         isActive: Boolean = true,
         activeDays: List<String> = emptyList(),
-        targetUserId: String? = null
+        targetUserId: String? = null,
+        id: String? = null, // NOVO: id opcional para edição
+        createdByUserId: String? = null // NOVO: para manter o criador original
     ) {
         currentUserId?.let { userId ->
             // Verificar se o usuário é responsável
@@ -732,7 +683,6 @@ class MainViewModel(
                 _routeOperationStatus.value = RouteOperationStatus.Error("Apenas responsáveis podem criar rotas.")
                 return
             }
-            
             viewModelScope.launch {
                 _routeOperationStatus.value = RouteOperationStatus.Loading
                 val apiKey = "AIzaSyB3KoJSAscYJb_YG70Mw3dqiBVXjMm7Z-k" // Obtenha sua API Key do BuildConfig
@@ -758,7 +708,7 @@ class MainViewModel(
                 }
 
                 val newRoute = Route(
-                    id = UUID.randomUUID().toString(), // Gere um ID único para a nova rota
+                    id = id ?: UUID.randomUUID().toString(), // Use o id passado para edição, ou gere novo para criação
                     name = name,
                     origin = originPoint,
                     destination = destinationPoint,
@@ -768,14 +718,10 @@ class MainViewModel(
                     routeColor = routeColor,
                     activeDays = activeDays,
                     targetUserId = targetUserId,
-                    createdByUserId = userId
+                    createdByUserId = createdByUserId ?: userId
                     // createdAt e updatedAt serão definidos pelo @ServerTimestamp no Firestore
                 )
 
-                // Agora, chame a função existente para salvar (que antes era addOrUpdate)
-                // Se sua função `saveRoute` no repositório lida com a atribuição de ID do Firestore,
-                // você pode passar `id = null` aqui e deixar o repo preencher.
-                // Mas para consistência, gerar um ID aqui e usá-lo é mais simples.
                 firebaseRepository.saveRoute(userId, newRoute) { routeIdFromSave, exception ->
                     if (exception != null) {
                         _routeOperationStatus.value = RouteOperationStatus.Error(exception.message ?: "Falha ao salvar rota.")
@@ -783,9 +729,7 @@ class MainViewModel(
                     } else if (routeIdFromSave != null) { // Sucesso
                         _routeOperationStatus.value = RouteOperationStatus.Success("Rota '${newRoute.name}' criada e salva!", routeIdFromSave)
                         loadUserRoutes(userId) // Recarregar rotas após salvar
-                        
-                        // Forçar verificação de status após criação
-                        Log.d(TAG1, "[createRouteWithDirections] Forçando verificação de status após criação")
+                        Log.d(TAG1, "[createRouteWithDirections] Forçando verificação de status após criação/edição")
                         forceRouteStatusCheck()
                     } else {
                         _routeOperationStatus.value = RouteOperationStatus.Error("Falha desconhecida ao salvar rota.")
@@ -806,7 +750,6 @@ class MainViewModel(
     fun clearAllData() {
         // Limpar dados de localização
         _currentLocation.value = null
-        _geofenceArea.value = null
         _isUserInsideGeofence.value = null
         _isLocationOutOfGeofence.value = false
         _isLocationOnRoute.value = null
@@ -817,8 +760,11 @@ class MainViewModel(
         _isLoadingRoutes.value = false
         _routeOperationStatus.value = RouteOperationStatus.Idle
         
-        // Limpar dados de geofence (usando _geofenceArea que é a variável correta)
-        _geofenceArea.value = null
+        // Limpar dados de geofences (múltiplas geofences)
+        _geofences.value = emptyList()
+        _selectedGeofence.value = null
+        _isLoadingGeofences.value = false
+        _geofenceOperationStatus.value = GeofenceOperationStatus.Idle
         
         // Limpar registros de localização
         _locationRecords.value = emptyList()

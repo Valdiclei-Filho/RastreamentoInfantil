@@ -153,6 +153,9 @@ fun RouteEditScreen(
             is MainViewModel.RouteOperationStatus.Success -> {
                 snackbarHostState.showSnackbar(status.message, duration = SnackbarDuration.Short)
                 mainViewModel.clearRouteOperationStatus()
+                // Forçar recarregamento das rotas após salvar
+                val firebaseUser = FirebaseAuth.getInstance().currentUser
+                firebaseUser?.uid?.let { mainViewModel.loadUserRoutes(it) }
                 navController.popBackStack()
             }
             is MainViewModel.RouteOperationStatus.Error -> {
@@ -170,6 +173,28 @@ fun RouteEditScreen(
         )
     }
 
+    // Função para resetar todos os pontos da rota, incluindo origem e destino
+    fun resetRoutePoints() {
+        originPoint = null
+        destinationPoint = null
+        routePoints = emptyList()
+        displayableEncodedPolyline = null
+    }
+
+    // Lógica de adição de pontos
+    fun addPointToRoute(latLng: LatLng) {
+        if (originPoint == null) {
+            originPoint = latLng
+            displayableEncodedPolyline = null
+        } else if (destinationPoint == null) {
+            destinationPoint = latLng
+            displayableEncodedPolyline = null
+        } else {
+            routePoints = routePoints + latLng
+            displayableEncodedPolyline = null
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -184,12 +209,21 @@ fun RouteEditScreen(
                         val finalWaypoints = routePoints.map { RoutePoint(latitude = it.latitude, longitude = it.longitude) }
 
                         if (routeName.isNotBlank() && finalOrigin != null && finalDestination != null) {
-                            val pointsHaveChanged = routeId == null ||
-                                    existingRoute?.origin?.let { LatLng(it.latitude, it.longitude) } != originPoint ||
-                                    existingRoute?.destination?.let { LatLng(it.latitude, it.longitude) } != destinationPoint ||
-                                    (existingRoute?.waypoints?.map { LatLng(it.latitude, it.longitude) } ?: emptyList()) != routePoints
-
-                            if (pointsHaveChanged) {
+                            if (routeId != null && existingRoute != null) {
+                                existingRoute?.let { route ->
+                                    mainViewModel.createRouteWithDirections(
+                                        name = routeName,
+                                        originPoint = finalOrigin,
+                                        destinationPoint = finalDestination,
+                                        waypointsList = finalWaypoints.takeIf { it.isNotEmpty() },
+                                        isActive = isRouteActive,
+                                        activeDays = selectedActiveDays,
+                                        targetUserId = selectedTargetUserId.takeIf { it.isNotEmpty() },
+                                        id = route.id, // Mantenha o id original
+                                        createdByUserId = route.createdByUserId // Mantenha o criador original
+                                    )
+                                }
+                            } else {
                                 mainViewModel.createRouteWithDirections(
                                     name = routeName,
                                     originPoint = finalOrigin,
@@ -199,27 +233,7 @@ fun RouteEditScreen(
                                     activeDays = selectedActiveDays,
                                     targetUserId = selectedTargetUserId.takeIf { it.isNotEmpty() }
                                 )
-                            } else if (routeId != null && existingRoute != null) {
-                                val routeToUpdate = existingRoute!!.copy(
-                                name = routeName,
-                                isActive = isRouteActive,
-                                    activeDays = selectedActiveDays,
-                                    targetUserId = selectedTargetUserId.takeIf { it.isNotEmpty() },
-                                    encodedPolyline = existingRoute!!.encodedPolyline,
-                                    createdByUserId = existingRoute!!.createdByUserId
-                            )
-                                mainViewModel.addOrUpdateRoute(routeToUpdate)
-                        } else {
-                            mainViewModel.createRouteWithDirections(
-                                name = routeName,
-                                originPoint = finalOrigin,
-                                destinationPoint = finalDestination,
-                                waypointsList = finalWaypoints.takeIf { it.isNotEmpty() },
-                                    isActive = isRouteActive,
-                                    activeDays = selectedActiveDays,
-                                    targetUserId = selectedTargetUserId.takeIf { it.isNotEmpty() }
-                            )
-                        }
+                            }
                         } else {
                             scope.launch {
                                 snackbarHostState.showSnackbar(
@@ -250,7 +264,7 @@ fun RouteEditScreen(
             ) {
                 Column(
                     modifier = Modifier.padding(dimensions.paddingMediumDp)
-            ) {
+                ) {
                     Text(
                         "Definir Rota no Mapa",
                         style = MaterialTheme.typography.titleMedium,
@@ -264,12 +278,12 @@ fun RouteEditScreen(
 
                     Box(
                         modifier = Modifier
-                .fillMaxWidth()
+                            .fillMaxWidth()
                             .weight(1f)
                     ) {
-                GoogleMap(
-                    modifier = Modifier.fillMaxSize(),
-                    cameraPositionState = cameraPositionState,
+                        GoogleMap(
+                            modifier = Modifier.fillMaxSize(),
+                            cameraPositionState = cameraPositionState,
                             uiSettings = MapUiSettings(
                                 zoomControlsEnabled = true,
                                 mapToolbarEnabled = false,
@@ -278,76 +292,66 @@ fun RouteEditScreen(
                                 tiltGesturesEnabled = true,
                                 rotationGesturesEnabled = true
                             ),
-                    onMapClick = { latLng ->
-                        if (originPoint == null) {
-                            originPoint = latLng
-                        } else if (destinationPoint == null) {
-                            destinationPoint = latLng
-                        } else {
-                                    routePoints = routePoints + latLng
-                        }
-                    }
-                ) {
-                    originPoint?.let {
+                            onMapClick = { latLng ->
+                                addPointToRoute(latLng)
+                            }
+                        ) {
+                            originPoint?.let {
                                 Marker(
                                     state = MarkerState(position = it),
                                     title = "Origem",
                                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)
                                 )
-                    }
-                    destinationPoint?.let {
+                            }
+                            destinationPoint?.let {
                                 Marker(
                                     state = MarkerState(position = it),
                                     title = "Destino",
                                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
                                 )
-                    }
-                    routePoints.forEachIndexed { index, point ->
+                            }
+                            routePoints.forEachIndexed { index, point ->
                                 Marker(
                                     state = MarkerState(position = point),
                                     title = "Ponto ${index + 1}",
                                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW)
                                 )
+                            }
+
+                            if (displayableEncodedPolyline != null) {
+                                val decodedPath: List<LatLng> = try {
+                                    com.google.maps.android.PolyUtil.decode(displayableEncodedPolyline!!)
+                                } catch (e: Exception) {
+                                    Log.e("RouteEditScreen", "Falha ao decodificar polyline: $displayableEncodedPolyline", e)
+                                    emptyList()
+                                }
+                                if (decodedPath.isNotEmpty()) {
+                                    Polyline(points = decodedPath, color = MaterialTheme.colorScheme.primary, width = 8f)
+                                }
+                            } else {
+                                val allPointsForPolyline = mutableListOf<LatLng>()
+                                originPoint?.let { allPointsForPolyline.add(it) }
+                                allPointsForPolyline.addAll(routePoints)
+                                destinationPoint?.let { allPointsForPolyline.add(it) }
+                                if (allPointsForPolyline.size >= 2) {
+                                    Polyline(points = allPointsForPolyline, color = MaterialTheme.colorScheme.secondary, width = 5f)
+                                }
+                            }
+                        }
                     }
 
-                    displayableEncodedPolyline?.let { encodedPath ->
-                        val decodedPath: List<LatLng> = try {
-                            com.google.maps.android.PolyUtil.decode(encodedPath)
-                        } catch (e: Exception) {
-                            Log.e("RouteEditScreen", "Falha ao decodificar polyline: $encodedPath", e)
-                            emptyList()
-                        }
-                        if (decodedPath.isNotEmpty()) {
-                            Polyline(points = decodedPath, color = MaterialTheme.colorScheme.primary, width = 8f)
-                        }
-                    } ?: run {
-                        val allPointsForPolyline = mutableListOf<LatLng>()
-                        originPoint?.let { allPointsForPolyline.add(it) }
-                        allPointsForPolyline.addAll(routePoints)
-                        destinationPoint?.let { allPointsForPolyline.add(it) }
-
-                        if (allPointsForPolyline.size >= 2) {
-                            Polyline(points = allPointsForPolyline, color = MaterialTheme.colorScheme.secondary, width = 5f)
-                        }
-                    }
-                }
-            }
-                    
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(dimensions.paddingSmallDp)
                     ) {
                         Button(
                             onClick = {
-                originPoint = null
-                destinationPoint = null
-                routePoints = emptyList()
-                displayableEncodedPolyline = null
+                                resetRoutePoints()
                             },
                             modifier = Modifier.weight(1f)
                         ) {
                             Text("Limpar Pontos")
-            }
+                        }
 
                         // Mostrar pontos definidos
                         Text(
@@ -367,148 +371,148 @@ fun RouteEditScreen(
                 verticalArrangement = Arrangement.spacedBy(dimensions.paddingMediumDp)
             ) {
                 item {
-            // Seção de Configuração Básica (colapsável)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(dimensions.paddingMediumDp)
-                ) {
-                    Row(
+                    // Seção de Configuração Básica (colapsável)
+                    Card(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
                     ) {
-                        Text(
-                            "Configuração Básica",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        IconButton(onClick = { showConfigSection = !showConfigSection }) {
-                            Icon(
-                                if (showConfigSection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = if (showConfigSection) "Recolher" else "Expandir"
-                            )
-                        }
-                    }
-                    
-                    if (showConfigSection) {
-                        Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
-                        
-                        OutlinedTextField(
-                            value = routeName,
-                            onValueChange = { routeName = it },
-                            label = { Text("Nome da Rota") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                        
-                        Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier.padding(dimensions.paddingMediumDp)
                         ) {
-                            Text("Rota Ativa:", style = MaterialTheme.typography.bodyLarge)
-                            Spacer(modifier = Modifier.width(dimensions.paddingSmallDp))
-                            Switch(
-                                checked = isRouteActive,
-                                onCheckedChange = { isRouteActive = it }
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Configuração Básica",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                IconButton(onClick = { showConfigSection = !showConfigSection }) {
+                                    Icon(
+                                        if (showConfigSection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = if (showConfigSection) "Recolher" else "Expandir"
+                                    )
                                 }
+                            }
+
+                            if (showConfigSection) {
+                                Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
+
+                                OutlinedTextField(
+                                    value = routeName,
+                                    onValueChange = { routeName = it },
+                                    label = { Text("Nome da Rota") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true
+                                )
+
+                                Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Rota Ativa:", style = MaterialTheme.typography.bodyLarge)
+                                    Spacer(modifier = Modifier.width(dimensions.paddingSmallDp))
+                                    Switch(
+                                        checked = isRouteActive,
+                                        onCheckedChange = { isRouteActive = it }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }
 
                 item {
-            // Seção de Dias da Semana (colapsável)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(dimensions.paddingMediumDp)
-                ) {
-                    Row(
+                    // Seção de Dias da Semana (colapsável)
+                    Card(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
                     ) {
-                        Text(
-                            "Dias da Semana",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        IconButton(onClick = { showDaysSection = !showDaysSection }) {
-                            Icon(
-                                if (showDaysSection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = if (showDaysSection) "Recolher" else "Expandir"
-                            )
-                        }
-                    }
-                    
-                    if (showDaysSection) {
-                        Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
-                        
-                        val weekDays = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
-                        LazyColumn(
-                            modifier = Modifier.height(200.dp)
+                        Column(
+                            modifier = Modifier.padding(dimensions.paddingMediumDp)
                         ) {
-                            items(weekDays) { day ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = selectedActiveDays.contains(day),
-                                        onCheckedChange = { checked ->
-                                            selectedActiveDays = if (checked) {
-                                                selectedActiveDays + day
-                                            } else {
-                                                selectedActiveDays - day
-                                            }
-                                        }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Dias da Semana",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                IconButton(onClick = { showDaysSection = !showDaysSection }) {
+                                    Icon(
+                                        if (showDaysSection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = if (showDaysSection) "Recolher" else "Expandir"
                                     )
-                                    Text(day, style = MaterialTheme.typography.bodyMedium)
-                                        }
                                 }
                             }
-        }
-    }
-}
-            }
 
-                item {
-            // Seção de Família (colapsável)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(dimensions.paddingMediumDp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            "Usuário da Família",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        IconButton(onClick = { showFamilySection = !showFamilySection }) {
-                            Icon(
-                                if (showFamilySection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = if (showFamilySection) "Recolher" else "Expandir"
-                            )
+                            if (showDaysSection) {
+                                Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
+
+                                val weekDays = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+                                LazyColumn(
+                                    modifier = Modifier.height(200.dp)
+                                ) {
+                                    items(weekDays) { day ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Checkbox(
+                                                checked = selectedActiveDays.contains(day),
+                                                onCheckedChange = { checked ->
+                                                    selectedActiveDays = if (checked) {
+                                                        selectedActiveDays + day
+                                                    } else {
+                                                        selectedActiveDays - day
+                                                    }
+                                                }
+                                            )
+                                            Text(day, style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                    
-                    if (showFamilySection) {
-                        Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
-                                
+                }
+
+                item {
+                    // Seção de Família (colapsável)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(dimensions.paddingMediumDp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Usuário da Família",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                IconButton(onClick = { showFamilySection = !showFamilySection }) {
+                                    Icon(
+                                        if (showFamilySection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = if (showFamilySection) "Recolher" else "Expandir"
+                                    )
+                                }
+                            }
+
+                            if (showFamilySection) {
+                                Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
+
                                 // Opção "Nenhum" para não atribuir a nenhum membro
                                 Row(
                                     modifier = Modifier
@@ -525,31 +529,31 @@ fun RouteEditScreen(
                                         Text("A rota ficará visível apenas para você", style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
-                        
-                        if (familyMembers.isNotEmpty()) {
-                            LazyColumn(
-                                modifier = Modifier.height(150.dp)
-                            ) {
-                                items(familyMembers) { member ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+
+                                if (familyMembers.isNotEmpty()) {
+                                    LazyColumn(
+                                        modifier = Modifier.height(150.dp)
                                     ) {
-                                        RadioButton(
-                                            selected = selectedTargetUserId == member.id,
-                                            onClick = { selectedTargetUserId = member.id ?: "" }
-                                        )
-                                        Column {
-                                            Text(member.name ?: "Sem nome", style = MaterialTheme.typography.bodyMedium)
-                                            Text(member.email ?: "", style = MaterialTheme.typography.bodySmall)
+                                        items(familyMembers) { member ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RadioButton(
+                                                    selected = selectedTargetUserId == member.id,
+                                                    onClick = { selectedTargetUserId = member.id ?: "" }
+                                                )
+                                                Column {
+                                                    Text(member.name ?: "Sem nome", style = MaterialTheme.typography.bodyMedium)
+                                                    Text(member.email ?: "", style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            }
                                         }
                                     }
-                                }
-                            }
-                        } else {
-                            Text("Nenhum membro da família encontrado", style = MaterialTheme.typography.bodySmall)
+                                } else {
+                                    Text("Nenhum membro da família encontrado", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
