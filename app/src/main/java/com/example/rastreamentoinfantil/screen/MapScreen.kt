@@ -242,10 +242,10 @@ fun MapScreen(
                 val decodedPath: List<LatLng>? = if (!route.encodedPolyline.isNullOrBlank()) {
                     try {
                         val path = PolyUtil.decode(route.encodedPolyline)
-                            if (path.size >= 2) path else null
+                        if (path.size >= 2) path else null
                     } catch (e: Exception) {
                         Log.e("MapScreen", "Erro ao decodificar polyline para rota '${route.name}'", e)
-                            null
+                        null
                     }
                 } else {
                     Log.w("MapScreen", "Rota '${route.name}' não tem encodedPolyline.")

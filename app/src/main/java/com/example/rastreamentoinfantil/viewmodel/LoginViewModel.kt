@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import com.example.rastreamentoinfantil.RastreamentoInfantilApp
 import com.example.rastreamentoinfantil.model.User
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.messaging.ktx.messaging
 
 class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewModel() {
     private val _isLoggedIn = MutableLiveData<Boolean>()
@@ -91,6 +93,24 @@ class LoginViewModel(private val firebaseRepository: FirebaseRepository) : ViewM
                         userId = userResult?.id,
                         userEmail = userResult?.email
                     )
+
+                    // Salvar token FCM após login bem-sucedido
+                    if (userResult?.id != null) {
+                        Firebase.messaging.token.addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                val token = task.result
+                                firebaseRepository.saveUserFcmToken(userResult.id!!, token) { success, exception ->
+                                    if (success) {
+                                        Log.d("LoginViewModel", "Token FCM salvo com sucesso após login")
+                                    } else {
+                                        Log.e("LoginViewModel", "Erro ao salvar token FCM após login: ", exception)
+                                    }
+                                }
+                            } else {
+                                Log.e("LoginViewModel", "Erro ao obter token FCM após login", task.exception)
+                            }
+                        }
+                    }
                 }
                 _error.value = null
             } else {

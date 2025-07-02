@@ -104,6 +104,9 @@ dependencies {
 
     implementation("com.google.firebase:firebase-analytics-ktx")
 
+    // OkHttp para requisições HTTP
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

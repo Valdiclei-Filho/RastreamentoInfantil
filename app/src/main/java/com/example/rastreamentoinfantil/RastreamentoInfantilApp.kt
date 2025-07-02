@@ -3,6 +3,9 @@ package com.example.rastreamentoinfantil
 import android.app.Application
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.FirebaseApp
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.messaging.ktx.messaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -69,6 +72,30 @@ class RastreamentoInfantilApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "=== APLICAÇÃO INICIANDO ===")
+        
+        // Inicializar Firebase explicitamente
+        try {
+            FirebaseApp.initializeApp(this)
+            Log.d(TAG, "Firebase inicializado com sucesso")
+            
+            // Verificar se o FCM está disponível
+            Firebase.messaging.isAutoInitEnabled.let { isEnabled ->
+                Log.d(TAG, "FCM Auto Init Enabled: $isEnabled")
+            }
+            
+            // Tentar obter token atual para debug
+            Firebase.messaging.token.addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val token = task.result
+                    Log.d(TAG, "Token FCM atual obtido na inicialização: $token")
+                } else {
+                    Log.e(TAG, "Erro ao obter token FCM na inicialização", task.exception)
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Erro ao inicializar Firebase", e)
+        }
         
         // Verificação síncrona inicial
         performInitialAuthCheck()

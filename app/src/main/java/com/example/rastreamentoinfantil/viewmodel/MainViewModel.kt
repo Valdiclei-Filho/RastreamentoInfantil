@@ -196,7 +196,13 @@ class MainViewModel(
         if (currentUser != null) {
             currentUserId = currentUser.uid
             Log.d(TAG1, "Usuário inicializado: $currentUserId")
+
+            // Obter e salvar token FCM
+            retrieveAndSaveFcmToken(currentUser.uid)
             
+            // Forçar obtenção do token atual para debug
+            forceGetCurrentToken()
+
             // Executar migração de relacionamentos familiares em background
             viewModelScope.launch(Dispatchers.IO) {
                 firebaseRepository.migrateExistingFamilyRelationships { success, message ->
@@ -436,27 +442,48 @@ class MainViewModel(
     }
 
     fun retrieveAndSaveFcmToken(userId: String) {
-        Firebase.messaging.token.addOnCompleteListener { task ->
+        Log.d(TAG1, "[retrieveAndSaveFcmToken] Solicitando token FCM para userId: $userId")
+        
+        // Verificar se o FCM está habilitado
+        val isAutoInitEnabled = com.google.firebase.ktx.Firebase.messaging.isAutoInitEnabled
+        Log.d(TAG1, "[retrieveAndSaveFcmToken] FCM Auto Init Enabled: $isAutoInitEnabled")
+        
+        com.google.firebase.ktx.Firebase.messaging.token.addOnCompleteListener { task ->
             if (!task.isSuccessful) {
-                Log.w(TAG, "Fetching FCM registration token failed", task.exception)
+                Log.w(TAG1, "[retrieveAndSaveFcmToken] Falha ao obter token FCM", task.exception)
                 return@addOnCompleteListener
             }
 
             // Obter novo token de registro FCM
             val token = task.result
-            Log.d(TAG, "FCM Token: $token")
+            Log.d(TAG1, "[retrieveAndSaveFcmToken] Token FCM obtido: $token")
 
             // Salve este token no Firestore associado ao userId do pai
-            // Exemplo (você precisará da sua implementação do FirebaseRepository):
-            // firebaseRepository.saveUserFcmToken(userId, token) { success ->
-            //     if (success) {
-            //         Log.d(TAG, "FCM token saved to Firestore for user $userId")
-            //     } else {
-            //         Log.w(TAG, "Failed to save FCM token for user $userId")
-            //     }
-            // }
+            firebaseRepository.saveUserFcmToken(userId, token) { success, exception ->
+                if (success) {
+                    Log.d(TAG1, "[retrieveAndSaveFcmToken] Token FCM salvo com sucesso no Firestore para userId: $userId")
+                } else {
+                    Log.e(TAG1, "[retrieveAndSaveFcmToken] Erro ao salvar token FCM no Firestore: ${exception?.message}")
+                }
+            }
         }
     }
+    
+    /**
+     * Força a obtenção do token atual para debug
+     */
+    fun forceGetCurrentToken() {
+        Log.d(TAG1, "[forceGetCurrentToken] Forçando obtenção do token atual")
+        com.google.firebase.ktx.Firebase.messaging.token.addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                val token = task.result
+                Log.d(TAG1, "[forceGetCurrentToken] Token atual: $token")
+            } else {
+                Log.e(TAG1, "[forceGetCurrentToken] Erro ao obter token", task.exception)
+            }
+        }
+    }
+
     fun loadUserRoutes(userId: String) {
         Log.d(TAG1, "[loadUserRoutes] Iniciando carregamento de rotas para userId: $userId")
         _isLoadingRoutes.value = true
@@ -1414,32 +1441,52 @@ class MainViewModel(
             Log.e(TAG1, "[onGeofenceExit] currentUserId está nulo! Não é possível salvar notificação.")
             return
         }
-        
         getLocationAddress(location) { address ->
             val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
-        val notificacao = NotificationHistoryEntry(
-            id = null,
-            titulo = "Saída de Área Segura",
+            val notificacao = NotificationHistoryEntry(
+                id = null,
+                titulo = "Saída de Área Segura",
                 body = "${childName ?: "Dependente"} saiu da área segura '${geofence.name}' às $horario. $locationInfo",
-            childId = currentUserId,
-            childName = childName,
-            tipoEvento = "saida_geofence",
-            latitude = location.latitude,
-            longitude = location.longitude,
-            horarioEvento = horario,
-            contagemTempo = System.currentTimeMillis(),
-            lida = false
-        )
+                childId = currentUserId,
+                childName = childName,
+                tipoEvento = "saida_geofence",
+                latitude = location.latitude,
+                longitude = location.longitude,
+                horarioEvento = horario,
+                contagemTempo = System.currentTimeMillis(),
+                lida = false
+            )
             Log.d(TAG1, "[onGeofenceExit] Notificação criada: $notificacao")
-        
-        // Salva para dependente e responsável
-        currentUserId?.let { userId ->
-            firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
-                if (!success) {
+            currentUserId?.let { userId ->
+                firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
+                    if (!success) {
                         Log.e(TAG1, "[onGeofenceExit] Erro ao salvar notificação de saída de geofence: ${exception?.message}")
-                } else {
+                    } else {
                         Log.d(TAG1, "[onGeofenceExit] Notificação de saída de geofence salva com sucesso para userId: $userId")
-                }
+                        // Enviar push para responsável e dependente
+                        firebaseRepository.getResponsibleForDependent(userId) { relationship, error ->
+                            if (relationship != null) {
+                                firebaseRepository.sendPushNotification(
+                                    dependentId = userId,
+                                    responsibleId = relationship.responsibleId,
+                                    title = "Saída de Área Segura",
+                                    body = "${childName ?: "Dependente"} saiu da área segura '${geofence.name}' às $horario. $locationInfo",
+                                    data = mapOf(
+                                        "eventType" to "geofence_exit",
+                                        "geofenceName" to geofence.name,
+                                        "latitude" to location.latitude.toString(),
+                                        "longitude" to location.longitude.toString()
+                                    )
+                                ) { pushSuccess, pushError ->
+                                    if (pushSuccess) {
+                                        Log.d(TAG1, "[onGeofenceExit] Notificação push enviada com sucesso")
+                                    } else {
+                                        Log.e(TAG1, "[onGeofenceExit] Erro ao enviar notificação push: ${pushError?.message}")
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             } ?: run {
                 Log.e(TAG1, "[onGeofenceExit] currentUserId nulo no momento de salvar notificação!")
@@ -1456,36 +1503,55 @@ class MainViewModel(
             Log.e(TAG1, "[onGeofenceReturn] currentUserId está nulo! Não é possível salvar notificação.")
             return
         }
-        
         Log.d(TAG1, "[onGeofenceReturn] Iniciando obtenção de endereço...")
         getLocationAddress(location) { address ->
             val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
             Log.d(TAG1, "[onGeofenceReturn] Endereço obtido: $locationInfo")
-            
-        val notificacao = NotificationHistoryEntry(
-            id = null,
-            titulo = "Retorno à Área Segura",
+            val notificacao = NotificationHistoryEntry(
+                id = null,
+                titulo = "Retorno à Área Segura",
                 body = "${childName ?: "Dependente"} voltou para a área segura '${geofence.name}' às $horario. $locationInfo",
-            childId = currentUserId,
-            childName = childName,
-            tipoEvento = "volta_geofence",
-            latitude = location.latitude,
-            longitude = location.longitude,
-            horarioEvento = horario,
-            contagemTempo = System.currentTimeMillis(),
-            lida = false
-        )
+                childId = currentUserId,
+                childName = childName,
+                tipoEvento = "volta_geofence",
+                latitude = location.latitude,
+                longitude = location.longitude,
+                horarioEvento = horario,
+                contagemTempo = System.currentTimeMillis(),
+                lida = false
+            )
             Log.d(TAG1, "[onGeofenceReturn] Notificação criada: $notificacao")
-        
-        // Salva para dependente e responsável
-        currentUserId?.let { userId ->
+            currentUserId?.let { userId ->
                 Log.d(TAG1, "[onGeofenceReturn] Chamando saveNotificationToBothUsers para userId: $userId")
-            firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
-                if (!success) {
+                firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
+                    if (!success) {
                         Log.e(TAG1, "[onGeofenceReturn] Erro ao salvar notificação de retorno à geofence: ${exception?.message}")
-                } else {
+                    } else {
                         Log.d(TAG1, "[onGeofenceReturn] Notificação de retorno à geofence salva com sucesso para userId: $userId")
-                }
+                        // Enviar push para responsável e dependente
+                        firebaseRepository.getResponsibleForDependent(userId) { relationship, error ->
+                            if (relationship != null) {
+                                firebaseRepository.sendPushNotification(
+                                    dependentId = userId,
+                                    responsibleId = relationship.responsibleId,
+                                    title = "Retorno à Área Segura",
+                                    body = "${childName ?: "Dependente"} voltou para a área segura '${geofence.name}' às $horario. $locationInfo",
+                                    data = mapOf(
+                                        "eventType" to "geofence_return",
+                                        "geofenceName" to geofence.name,
+                                        "latitude" to location.latitude.toString(),
+                                        "longitude" to location.longitude.toString()
+                                    )
+                                ) { pushSuccess, pushError ->
+                                    if (pushSuccess) {
+                                        Log.d(TAG1, "[onGeofenceReturn] Notificação push enviada com sucesso")
+                                    } else {
+                                        Log.e(TAG1, "[onGeofenceReturn] Erro ao enviar notificação push: ${pushError?.message}")
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             } ?: run {
                 Log.e(TAG1, "[onGeofenceReturn] currentUserId nulo no momento de salvar notificação!")
@@ -1504,27 +1570,49 @@ class MainViewModel(
         }
         getLocationAddress(location) { address ->
             val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
-        val notificacao = NotificationHistoryEntry(
-            id = null,
-            titulo = "Desvio de Rota",
+            val notificacao = NotificationHistoryEntry(
+                id = null,
+                titulo = "Desvio de Rota",
                 body = "${childName ?: "Dependente"} saiu da rota '${route.name}' às $horario. $locationInfo",
-            childId = currentUserId,
-            childName = childName,
+                childId = currentUserId,
+                childName = childName,
                 tipoEvento = "saida_rota",
-            latitude = location.latitude,
-            longitude = location.longitude,
-            horarioEvento = horario,
-            contagemTempo = System.currentTimeMillis(),
-            lida = false
-        )
+                latitude = location.latitude,
+                longitude = location.longitude,
+                horarioEvento = horario,
+                contagemTempo = System.currentTimeMillis(),
+                lida = false
+            )
             Log.d(TAG1, "[onRouteDeviation] Notificação criada: $notificacao")
-        // Salva para dependente e responsável
-        currentUserId?.let { userId ->
-            firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
-                if (!success) {
+            currentUserId?.let { userId ->
+                firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
+                    if (!success) {
                         Log.e(TAG1, "[onRouteDeviation] Erro ao salvar notificação de desvio de rota: ${exception?.message}")
-                } else {
+                    } else {
                         Log.d(TAG1, "[onRouteDeviation] Notificação de desvio de rota salva com sucesso para userId: $userId")
+                        // Enviar push para responsável e dependente
+                        firebaseRepository.getResponsibleForDependent(userId) { relationship, error ->
+                            if (relationship != null) {
+                                firebaseRepository.sendPushNotification(
+                                    dependentId = userId,
+                                    responsibleId = relationship.responsibleId,
+                                    title = "Desvio de Rota",
+                                    body = "${childName ?: "Dependente"} saiu da rota '${route.name}' às $horario. $locationInfo",
+                                    data = mapOf(
+                                        "eventType" to "route_deviation",
+                                        "routeName" to route.name,
+                                        "latitude" to location.latitude.toString(),
+                                        "longitude" to location.longitude.toString()
+                                    )
+                                ) { pushSuccess, pushError ->
+                                    if (pushSuccess) {
+                                        Log.d(TAG1, "[onRouteDeviation] Notificação push enviada com sucesso")
+                                    } else {
+                                        Log.e(TAG1, "[onRouteDeviation] Erro ao enviar notificação push: ${pushError?.message}")
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             } ?: run {
@@ -1542,12 +1630,10 @@ class MainViewModel(
             Log.e(TAG1, "[onRouteReturn] currentUserId está nulo! Não é possível salvar notificação.")
             return
         }
-        
         Log.d(TAG1, "[onRouteReturn] Iniciando obtenção de endereço...")
         getLocationAddress(location) { address ->
             val locationInfo = address ?: "Localização: ${location.latitude}, ${location.longitude}"
             Log.d(TAG1, "[onRouteReturn] Endereço obtido: $locationInfo")
-            
             val notificacao = NotificationHistoryEntry(
                 id = null,
                 titulo = "Retorno à Rota",
@@ -1561,17 +1647,37 @@ class MainViewModel(
                 contagemTempo = System.currentTimeMillis(),
                 lida = false
             )
-            
             Log.d(TAG1, "[onRouteReturn] Notificação criada: $notificacao")
-            
-            // Salva para dependente e responsável
             currentUserId?.let { userId ->
                 Log.d(TAG1, "[onRouteReturn] Chamando saveNotificationToBothUsers para userId: $userId")
                 firebaseRepository.saveNotificationToBothUsers(userId, notificacao) { success, exception ->
                     if (!success) {
                         Log.e(TAG1, "[onRouteReturn] Erro ao salvar notificação de retorno à rota: ${exception?.message}")
-            } else {
+                    } else {
                         Log.d(TAG1, "[onRouteReturn] Notificação de retorno à rota salva com sucesso para userId: $userId")
+                        // Enviar push para responsável e dependente
+                        firebaseRepository.getResponsibleForDependent(userId) { relationship, error ->
+                            if (relationship != null) {
+                                firebaseRepository.sendPushNotification(
+                                    dependentId = userId,
+                                    responsibleId = relationship.responsibleId,
+                                    title = "Retorno à Rota",
+                                    body = "${childName ?: "Dependente"} voltou para a rota '${route.name}' às $horario. $locationInfo",
+                                    data = mapOf(
+                                        "eventType" to "route_return",
+                                        "routeName" to route.name,
+                                        "latitude" to location.latitude.toString(),
+                                        "longitude" to location.longitude.toString()
+                                    )
+                                ) { pushSuccess, pushError ->
+                                    if (pushSuccess) {
+                                        Log.d(TAG1, "[onRouteReturn] Notificação push enviada com sucesso")
+                                    } else {
+                                        Log.e(TAG1, "[onRouteReturn] Erro ao enviar notificação push: ${pushError?.message}")
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             } ?: run {

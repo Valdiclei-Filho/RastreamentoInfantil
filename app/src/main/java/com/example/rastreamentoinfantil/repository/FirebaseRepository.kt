@@ -17,6 +17,9 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
+import okhttp3.OkHttpClient
+import org.json.JSONObject
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 
 class FirebaseRepository {
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
@@ -2387,5 +2390,80 @@ class FirebaseRepository {
             .addOnFailureListener { e ->
                 onComplete(null, e)
             }
+    }
+
+    /**
+     * Salva o token FCM do usuário logado no Firestore
+     */
+    fun saveUserFcmToken(userId: String, token: String, onComplete: ((Boolean, Exception?) -> Unit)? = null) {
+        if (userId.isEmpty() || token.isEmpty()) {
+            onComplete?.invoke(false, IllegalArgumentException("userId ou token vazio."))
+            return
+        }
+        firestore.collection(USERS_COLLECTION).document(userId)
+            .update("fcmToken", token)
+            .addOnSuccessListener { onComplete?.invoke(true, null) }
+            .addOnFailureListener { e -> onComplete?.invoke(false, e) }
+    }
+
+    /**
+     * Envia notificação push via Cloud Function
+     */
+    fun sendPushNotification(
+        dependentId: String,
+        responsibleId: String,
+        title: String,
+        body: String,
+        data: Map<String, String> = emptyMap(),
+        onComplete: (Boolean, Exception?) -> Unit
+    ) {
+        Log.d(TAG, "Enviando notificação push - dependentId: $dependentId, responsibleId: $responsibleId")
+        Log.d(TAG, "Título: $title, Corpo: $body")
+        
+        val url = "https://sendeventnotification-yiaxbshi5q-uc.a.run.app"
+        val jsonBody = mapOf(
+            "dependentId" to dependentId,
+            "responsibleId" to responsibleId,
+            "title" to title,
+            "body" to body,
+            "data" to data
+        )
+        
+        Log.d(TAG, "URL da Cloud Function: $url")
+        Log.d(TAG, "Payload JSON: $jsonBody")
+        
+        // Usar OkHttp para fazer a requisição HTTP
+        val client = okhttp3.OkHttpClient()
+        val json = org.json.JSONObject(jsonBody)
+        val requestBody = okhttp3.RequestBody.create(
+            "application/json; charset=utf-8".toMediaTypeOrNull(),
+            json.toString()
+        )
+        
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .post(requestBody)
+            .build()
+        
+        Log.d(TAG, "Iniciando requisição HTTP para Cloud Function...")
+        
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                Log.e(TAG, "Erro ao enviar notificação push", e)
+                onComplete(false, e)
+            }
+            
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                val success = response.isSuccessful
+                Log.d(TAG, "Resposta da Cloud Function: ${response.code}")
+                Log.d(TAG, "Sucesso: $success")
+                
+                // Log do corpo da resposta
+                val responseBody = response.body?.string()
+                Log.d(TAG, "Corpo da resposta: $responseBody")
+                
+                onComplete(success, if (!success) Exception("HTTP ${response.code}") else null)
+            }
+        })
     }
 }

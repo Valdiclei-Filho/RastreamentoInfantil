@@ -19,7 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
-import com.example.rastreamentoinfantil.MyFirebaseMessagingService.Companion.CHANNEL_ID
+import com.example.rastreamentoinfantil.service.MyFirebaseMessagingService.Companion.CHANNEL_ID
 import com.example.rastreamentoinfantil.helper.GeofenceHelper
 import com.example.rastreamentoinfantil.repository.FirebaseRepository
 import com.example.rastreamentoinfantil.screen.MapScreen

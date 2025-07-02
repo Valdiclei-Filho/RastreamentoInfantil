@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.rastreamentoinfantil.MainActivity // Sua atividade principal
 import com.example.rastreamentoinfantil.R // Seu R.drawable etc.
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
@@ -18,7 +19,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "MyFirebaseMsgService"
-        private const val CHANNEL_ID = "geofence_event_channel"
+        const val CHANNEL_ID = "geofence_event_channel"
         private const val CHANNEL_NAME = "Geofence Alerts"
     }
 
@@ -29,30 +30,21 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         Log.d(TAG, "From: ${remoteMessage.from}")
 
-        // Verificar se a mensagem contém uma carga de dados.
-        remoteMessage.data.isNotEmpty().let {
-            Log.d(TAG, "Message data payload: " + remoteMessage.data)
-            // Aqui você processaria os dados da sua notificação
-            // Ex: tipo de evento (entrou/saiu), nome da criança, nome da área
-            val title = remoteMessage.data["title"] ?: "Alerta de Geofence"
-            val body = remoteMessage.data["body"] ?: "Evento de geofence detectado."
-            val childId = remoteMessage.data["childId"]
-            val eventType = remoteMessage.data["eventType"] // "entered", "exited"
-            val timestamp = remoteMessage.data["timestamp"]?.toLongOrNull() ?: System.currentTimeMillis()
-
-            // TODO: Salvar esta notificação no histórico do Firestore
-            // Ex: val notificationEntry = NotificationHistoryEntry(title, body, childId, eventType, timestamp)
-            //     notificationHistoryRepository.saveNotification(userId, notificationEntry) { ... }
-
+        // Se vier como notification (ex: do Firebase Console)
+        remoteMessage.notification?.let {
+            val title = it.title ?: "Alerta"
+            val body = it.body ?: "Nova notificação"
+            Log.d(TAG, "Recebido notification: title=$title, body=$body")
             sendNotification(title, body)
+            return
         }
 
-        // Verificar se a mensagem contém uma carga de notificação (geralmente tratada pelo sistema
-        // quando o app está em segundo plano, mas você pode querer tratar aqui também).
-        remoteMessage.notification?.let {
-            Log.d(TAG, "Message Notification Body: ${it.body}")
-            // Se você quiser tratar a notificação do Firebase Console aqui também
-            // sendNotification(it.title ?: "Notification", it.body ?: "New message")
+        // Se vier como data (ex: do backend)
+        if (remoteMessage.data.isNotEmpty()) {
+            val title = remoteMessage.data["title"] ?: "Alerta de Geofence"
+            val body = remoteMessage.data["body"] ?: "Evento de geofence detectado."
+            Log.d(TAG, "Recebido data: title=$title, body=$body, data=${remoteMessage.data}")
+            sendNotification(title, body)
         }
     }
 
@@ -62,11 +54,22 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      */
     override fun onNewToken(token: String) {
         Log.d(TAG, "Refreshed token: $token")
-        // Se você precisar enviar este token para o seu servidor de aplicativos, faça-o aqui.
-        // Ex: val userId = getCurrentUserId() // Precisa de uma forma de obter o ID do usuário atual
-        // if (userId != null) {
-        //     mainViewModel.retrieveAndSaveFcmToken(userId) // Ou chame o repository diretamente
-        // }
+        
+        // Salvar o token FCM no Firestore para o usuário logado
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user != null) {
+            Log.d(TAG, "Salvando token para usuário: ${user.uid}")
+            val repo = com.example.rastreamentoinfantil.repository.FirebaseRepository()
+            repo.saveUserFcmToken(user.uid, token) { success, exception ->
+                if (success) {
+                    Log.d(TAG, "Token FCM salvo com sucesso no Firestore")
+                } else {
+                    Log.e(TAG, "Erro ao salvar token FCM: ${exception?.message}")
+                }
+            }
+        } else {
+            Log.w(TAG, "Usuário não logado, não é possível salvar token FCM")
+        }
     }
 
     /**
