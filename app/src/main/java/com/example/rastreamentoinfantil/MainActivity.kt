@@ -74,6 +74,8 @@ class MainActivity : ComponentActivity(){
                 println("Permissão de notificação NEGADA.")
                 Toast.makeText(this, "Permissão de notificação negada. Funcionalidades podem ser limitadas.", Toast.LENGTH_LONG).show()
             }
+            // Solicita a permissão de localização logo após a de notificação
+            requestLocationPermissions()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,6 +97,14 @@ class MainActivity : ComponentActivity(){
         val factory = MainViewModelFactory(application, firebaseRepository, locationService, geocodingService, geofenceHelper, routeHelper)
 
         mainViewModel = ViewModelProvider(this, factory).get(MainViewModel::class.java)
+
+        // Solicita permissões ANTES de liberar a navegação/login
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            // Se não precisa de permissão de notificação, já pede localização
+            requestLocationPermissions()
+        }
 
         // Renderiza a UI imediatamente
         setContent {
