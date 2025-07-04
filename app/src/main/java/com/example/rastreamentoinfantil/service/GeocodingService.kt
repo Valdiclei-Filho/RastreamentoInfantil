@@ -18,9 +18,20 @@ class GeocodingService(private val context: Context) {
         try {
             val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
             if (addresses?.isNotEmpty() == true) {
-                val address = addresses[0].getAddressLine(0)
-                Log.d(TAG, "getAddressFromLocation: Endereço encontrado: $address")
-                callback(address)
+                val addr = addresses[0]
+                val rua = addr.thoroughfare ?: ""
+                val numero = addr.subThoroughfare ?: ""
+                val bairro = addr.subLocality ?: ""
+                val cidade = addr.locality ?: ""
+                val partes = listOfNotNull(
+                    listOfNotNull(rua.takeIf { it.isNotBlank() }, numero.takeIf { it.isNotBlank() })
+                        .joinToString(", ").takeIf { it.isNotBlank() },
+                    bairro.takeIf { it.isNotBlank() },
+                    cidade.takeIf { it.isNotBlank() }
+                )
+                val enderecoCurto = partes.joinToString(" - ")
+                Log.d(TAG, "getAddressFromLocation: Endereço encurtado: $enderecoCurto")
+                callback(enderecoCurto.ifBlank { addr.getAddressLine(0) })
             } else {
                 Log.w(TAG, "getAddressFromLocation: Nenhum endereço encontrado")
                 callback("Endereço não encontrado")

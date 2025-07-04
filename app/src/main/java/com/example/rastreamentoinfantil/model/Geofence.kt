@@ -12,6 +12,7 @@ data class Geofence(
     var targetUserId: String? = null, // ID do usuário da família para quem a geofence é destinada
     var createdByUserId: String = "", // ID do usuário que criou a geofence (responsável)
     var color: String? = "#3F51B5", // Cor da geofence no mapa (Hex)
+    var activeDays: List<String> = emptyList(), // Dias da semana em que a geofence está ativa
     @ServerTimestamp
     var createdAt: Date? = null,
     @ServerTimestamp

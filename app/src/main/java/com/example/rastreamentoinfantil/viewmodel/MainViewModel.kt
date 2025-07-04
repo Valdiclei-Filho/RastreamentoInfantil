@@ -199,6 +199,11 @@ class MainViewModel(
     private var _lastPresentGeofenceId = MutableStateFlow<String?>(null)
     val lastPresentGeofenceId: StateFlow<String?> = _lastPresentGeofenceId.asStateFlow()
 
+    // Variáveis de contagem para saída global
+    private var exitAllGeofencesCounter = 0
+    private var exitAllRoutesCounter = 0
+    private val EXIT_GLOBAL_THRESHOLD = 3
+
     init {
         Log.d(TAG1, "Inicializando MainViewModel")
         
@@ -932,27 +937,15 @@ class MainViewModel(
      * Filtra rotas que estão ativas para hoje
      */
     fun getActiveRoutesForToday(): List<Route> {
-        val today = Calendar.getInstance()
-        val dayOfWeek = today.get(Calendar.DAY_OF_WEEK)
-        
-        // Converter número do dia da semana para string (com acentos)
-        val dayName = when (dayOfWeek) {
-            Calendar.SUNDAY -> "Domingo"
-            Calendar.MONDAY -> "Segunda"
-            Calendar.TUESDAY -> "Terça"
-            Calendar.WEDNESDAY -> "Quarta"
-            Calendar.THURSDAY -> "Quinta"
-            Calendar.FRIDAY -> "Sexta"
-            Calendar.SATURDAY -> "Sábado"
-            else -> ""
-        }
-        
-        Log.d(TAG1, "[getActiveRoutesForToday] Dia atual: $dayName, Total de rotas: ${routes.value.size}")
-        
+        val diasSemana = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+        val cal = java.util.Calendar.getInstance()
+        val idx = (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+        val diaAtual = diasSemana[idx]
+        Log.d(TAG1, "[getActiveRoutesForToday] diaAtual=$diaAtual")
         val activeRoutes = routes.value.filter { route ->
-            route.isActive && route.activeDays.contains(dayName)
+            Log.d(TAG1, "[getActiveRoutesForToday] Route ${route.name}: activeDays=${route.activeDays}")
+            route.isActive && route.activeDays.contains(diaAtual)
         }
-        
         Log.d(TAG1, "[getActiveRoutesForToday] Rotas ativas para hoje: ${activeRoutes.size}")
         return activeRoutes
     }
@@ -1152,15 +1145,25 @@ class MainViewModel(
         Log.d(TAG1, "[getActiveGeofencesForUser] === INÍCIO DO FILTRO ===")
         Log.d(TAG1, "[getActiveGeofencesForUser] Total de geofences carregadas: ${geofences.value.size}")
         Log.d(TAG1, "[getActiveGeofencesForUser] isResponsible: ${isResponsible.value}, currentUserId: $currentUserId")
-        
+
+        // Descobrir o dia da semana atual (em português)
+        val diasSemana = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+        val cal = java.util.Calendar.getInstance()
+        val idx = (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7 // Segunda=0, Terça=1, ..., Domingo=6
+        val diaAtual = diasSemana[idx]
+        Log.d(TAG1, "[getActiveGeofencesForUser] diaAtual=$diaAtual")
         val activeGeofences = geofences.value.filter { geofence ->
+            Log.d(TAG1, "[getActiveGeofencesForUser] Geofence ${geofence.name}: activeDays=${geofence.activeDays}")
             val isActive = geofence.isActive &&
             (
                 // Responsáveis veem todas as geofences que criaram
-                (isResponsible.value && geofence.createdByUserId == currentUserId) ||
+                (isResponsible.value && geofence.createdByUserId == currentUserId)
+                ||
                 // Membros veem apenas geofences onde são o targetUserId
                 (!isResponsible.value && geofence.targetUserId == currentUserId)
             )
+            // Para dependente, só mostrar se o dia atual está em activeDays
+            && (isResponsible.value || geofence.activeDays.contains(diaAtual))
             Log.d(TAG1, "[getActiveGeofencesForUser] Geofence ${geofence.name}: isActive=${geofence.isActive}, createdByUserId=${geofence.createdByUserId}, targetUserId=${geofence.targetUserId}, result=$isActive")
             isActive
         }
@@ -1212,6 +1215,7 @@ class MainViewModel(
      * LÓGICA: Sempre notifica saídas, independente se entra em outra geofence
      */
     private fun checkAllGeofencesStatus(location: Location) {
+        Log.d(TAG1, "[checkAllGeofencesStatus] MÉTODO CHAMADO")
         // Não verificar geofences para responsáveis
         if (_isResponsible.value) {
             Log.d(TAG1, "checkAllGeofencesStatus: Usuário é responsável, não verifica geofences.")
@@ -1248,7 +1252,7 @@ class MainViewModel(
             Log.d(TAG1, "[checkAllGeofencesStatus] Geofence ${geofence.name}: previousStatus=$previousStatus, isInside=$isInside")
             
             // Atualiza o status atual
-            currentStatusMap[geofenceId] = isInside
+                currentStatusMap[geofenceId] = isInside
             
             // Se está dentro desta geofence, marcar como presente
             if (isInside) {
@@ -1256,23 +1260,23 @@ class MainViewModel(
                 currentlyPresentGeofenceId = geofenceId
                 Log.d(TAG1, "[checkAllGeofencesStatus] ✅ Usuário está dentro da geofence: ${geofence.name}")
             }
-            
+                
             // Se é a primeira verificação, apenas inicializar sem notificação
             if (previousStatus == null) {
                 Log.d(TAG1, "[checkAllGeofencesStatus] PRIMEIRA VERIFICAÇÃO para geofence ${geofence.name}: isInside=$isInside")
                 return@forEach
             }
-            
-            // Verifica se houve mudança de status
-            if (previousStatus != isInside) {
-                val notificationKey = "geofence_${geofenceId}_${if (isInside) "return" else "exit"}"
+                
+                // Verifica se houve mudança de status
+                if (previousStatus != isInside) {
+                    val notificationKey = "geofence_${geofenceId}_${if (isInside) "return" else "exit"}"
                 val cooldownTime = if (isInside) 10000L else NOTIFICATION_COOLDOWN
-                
-                Log.d(TAG1, "[checkAllGeofencesStatus] 🔄 MUDANÇA DETECTADA: previousStatus=$previousStatus, isInside=$isInside")
-                
-                if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > cooldownTime) {
-                    lastNotificationTime[notificationKey] = currentTime
                     
+                    Log.d(TAG1, "[checkAllGeofencesStatus] 🔄 MUDANÇA DETECTADA: previousStatus=$previousStatus, isInside=$isInside")
+                    
+                    if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > cooldownTime) {
+                        lastNotificationTime[notificationKey] = currentTime
+                        
                     if (isInside) {
                         // Usuário entrou na geofence
                         Log.d(TAG1, "[checkAllGeofencesStatus] 🏠 Usuário entrou na geofence: ${geofence.name}")
@@ -1280,12 +1284,12 @@ class MainViewModel(
                     } else {
                         // Usuário saiu da geofence - SEMPRE NOTIFICAR
                         Log.d(TAG1, "[checkAllGeofencesStatus] 🚪 Usuário saiu da geofence: ${geofence.name} - NOTIFICANDO")
-                        _showExitNotificationEvent.tryEmit(geofence.name)
-                        onGeofenceExit(geofence, location)
+                            _showExitNotificationEvent.tryEmit(geofence.name)
+                            onGeofenceExit(geofence, location)
+                        }
+                    } else {
+                        Log.d(TAG1, "[checkAllGeofencesStatus] ⏰ Notificação ignorada devido ao cooldown para geofence: ${geofence.name}")
                     }
-                } else {
-                    Log.d(TAG1, "[checkAllGeofencesStatus] ⏰ Notificação ignorada devido ao cooldown para geofence: ${geofence.name}")
-                }
             }
         }
         
@@ -1294,9 +1298,16 @@ class MainViewModel(
         _lastPresentGeofenceId.value = currentlyPresentGeofenceId
         
         // Verificar se saiu de todas as geofences (notificação global)
-        if (previousPresentInAnyGeofence == true && !isCurrentlyInAnyGeofence) {
-            Log.d(TAG1, "[checkAllGeofencesStatus] 🚨 USUÁRIO SAIU DE TODAS AS GEOFENCES!")
-            onExitAllGeofences(location)
+        if (!isCurrentlyInAnyGeofence) {
+            exitAllGeofencesCounter++
+            Log.d(TAG1, "[checkAllGeofencesStatus] Contador saída de todas as geofences: $exitAllGeofencesCounter")
+            if (exitAllGeofencesCounter == EXIT_GLOBAL_THRESHOLD) {
+                Log.d(TAG1, "[checkAllGeofencesStatus] 🚨 USUÁRIO SAIU DE TODAS AS GEOFENCES (após $EXIT_GLOBAL_THRESHOLD checagens consecutivas)!")
+                onExitAllGeofences(location)
+            }
+        } else {
+            if (exitAllGeofencesCounter != 0) Log.d(TAG1, "[checkAllGeofencesStatus] Usuário voltou para dentro de alguma geofence, contador zerado.")
+            exitAllGeofencesCounter = 0
         }
         
         _geofenceStatusMap.value = currentStatusMap
@@ -1312,6 +1323,7 @@ class MainViewModel(
      * LÓGICA: Sempre notifica saídas, independente se entra em outra rota
      */
     private fun checkAllRoutesStatus(location: Location) {
+        Log.d(TAG1, "[checkAllRoutesStatus] MÉTODO CHAMADO")
         // Não verificar rotas para responsáveis
         if (_isResponsible.value) {
             Log.d(TAG1, "checkAllRoutesStatus: Usuário é responsável, não verifica rotas.")
@@ -1346,8 +1358,8 @@ class MainViewModel(
             Log.d(TAG1, "[checkAllRoutesStatus] === ANÁLISE ROTA: ${route.name} ===")
             Log.d(TAG1, "[checkAllRoutesStatus] Rota ${route.name}: previousStatus=$previousStatus, isOnRoute=$isOnRoute")
             
-            // Atualiza o status atual
-            currentStatusMap[routeId] = isOnRoute
+                // Atualiza o status atual
+                currentStatusMap[routeId] = isOnRoute
             
             // Se está na rota, marcar como presente
             if (isOnRoute) {
@@ -1361,16 +1373,16 @@ class MainViewModel(
                 Log.d(TAG1, "[checkAllRoutesStatus] PRIMEIRA VERIFICAÇÃO para rota ${route.name}: isOnRoute=$isOnRoute")
                 return@forEach
             }
-            
-            // Verifica se houve mudança de status
-            if (previousStatus != isOnRoute) {
-                val notificationKey = "route_${routeId}_${if (isOnRoute) "return" else "exit"}"
+                
+                // Verifica se houve mudança de status
+                if (previousStatus != isOnRoute) {
+                    val notificationKey = "route_${routeId}_${if (isOnRoute) "return" else "exit"}"
                 val cooldownTime = if (isOnRoute) 10000L else NOTIFICATION_COOLDOWN
                 
                 Log.d(TAG1, "[checkAllRoutesStatus] 🔄 MUDANÇA DETECTADA: previousStatus=$previousStatus, isOnRoute=$isOnRoute")
                 
-                if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > cooldownTime) {
-                    lastNotificationTime[notificationKey] = currentTime
+                    if (currentTime - (lastNotificationTime[notificationKey] ?: 0L) > cooldownTime) {
+                        lastNotificationTime[notificationKey] = currentTime
                     
                     if (isOnRoute) {
                         // Usuário entrou na rota
@@ -1379,12 +1391,12 @@ class MainViewModel(
                     } else {
                         // Usuário saiu da rota - SEMPRE NOTIFICAR
                         Log.d(TAG1, "[checkAllRoutesStatus] 🚪 Usuário saiu da rota: ${route.name} - NOTIFICANDO")
-                        _showRouteExitNotificationEvent.tryEmit(route.name)
-                        onRouteDeviation(route, location)
-                    }
-                } else {
+                            _showRouteExitNotificationEvent.tryEmit(route.name)
+                            onRouteDeviation(route, location)
+                        }
+                    } else {
                     Log.d(TAG1, "[checkAllRoutesStatus] ⏰ Notificação ignorada devido ao cooldown para rota: ${route.name}")
-                }
+                    }
             }
         }
         
@@ -1393,9 +1405,16 @@ class MainViewModel(
         _lastPresentRouteId.value = currentlyPresentRouteId
         
         // Verificar se saiu de todas as rotas (notificação global)
-        if (previousPresentInAnyRoute == true && !isCurrentlyOnAnyRoute) {
-            Log.d(TAG1, "[checkAllRoutesStatus] 🚨 USUÁRIO SAIU DE TODAS AS ROTAS!")
-            onExitAllRoutes(location)
+        if (!isCurrentlyOnAnyRoute) {
+            exitAllRoutesCounter++
+            Log.d(TAG1, "[checkAllRoutesStatus] Contador saída de todas as rotas: $exitAllRoutesCounter")
+            if (exitAllRoutesCounter == EXIT_GLOBAL_THRESHOLD) {
+                Log.d(TAG1, "[checkAllRoutesStatus] 🚨 USUÁRIO SAIU DE TODAS AS ROTAS (após $EXIT_GLOBAL_THRESHOLD checagens consecutivas)!")
+                onExitAllRoutes(location)
+            }
+        } else {
+            if (exitAllRoutesCounter != 0) Log.d(TAG1, "[checkAllRoutesStatus] Usuário voltou para dentro de alguma rota, contador zerado.")
+            exitAllRoutesCounter = 0
         }
         
         _routeStatusMap.value = currentStatusMap

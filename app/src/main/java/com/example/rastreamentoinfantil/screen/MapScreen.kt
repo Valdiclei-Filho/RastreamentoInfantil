@@ -350,7 +350,8 @@ fun MapScreen(
                     Marker(
                         state = MarkerState(position = centerLatLng),
                         title = geofence.name,
-                        snippet = "Raio: ${geofence.radius.toInt()}m - $statusText"
+                        snippet = "Raio: ${geofence.radius.toInt()}m - $statusText",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_ORANGE)
                     )
             }
 

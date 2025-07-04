@@ -56,10 +56,12 @@ fun GeofenceEditScreen(
     var geofenceRadius by rememberSaveable(existingGeofence) { mutableStateOf(existingGeofence?.radius ?: 100f) }
     var isGeofenceActive by rememberSaveable(existingGeofence) { mutableStateOf(existingGeofence?.isActive ?: false) }
     var selectedTargetUserId by rememberSaveable(existingGeofence) { mutableStateOf(existingGeofence?.targetUserId ?: "") }
+    var selectedActiveDays by rememberSaveable(existingGeofence) { mutableStateOf(existingGeofence?.activeDays ?: emptyList<String>()) }
 
     // Estados para seções colapsáveis
     var showConfigSection by remember { mutableStateOf(false) }
     var showFamilySection by remember { mutableStateOf(false) }
+    var showDaysSection by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -191,7 +193,8 @@ fun GeofenceEditScreen(
                                 coordinates = Coordinate(geofenceCenter!!.latitude, geofenceCenter!!.longitude),
                                 isActive = isGeofenceActive,
                                 targetUserId = selectedTargetUserId.takeIf { it.isNotEmpty() },
-                                createdByUserId = firebaseUser?.uid ?: ""
+                                createdByUserId = firebaseUser?.uid ?: "",
+                                activeDays = selectedActiveDays
                             )
                             
                             if (geofenceId != null) {
@@ -331,6 +334,7 @@ fun GeofenceEditScreen(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(dimensions.paddingMediumDp)
             ) {
+                // 1. Card Configuração Básica
                 item {
                     // Seção de Configuração Básica
                     Card(
@@ -356,10 +360,8 @@ fun GeofenceEditScreen(
                                     )
                                 }
                             }
-                            
                             if (showConfigSection) {
                                 Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
-                                
                                 OutlinedTextField(
                                     value = geofenceName,
                                     onValueChange = { geofenceName = it },
@@ -367,9 +369,7 @@ fun GeofenceEditScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true
                                 )
-                                
                                 Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
-                                
                                 Text("Raio: ${geofenceRadius.toInt()}m", style = MaterialTheme.typography.bodyLarge)
                                 Slider(
                                     value = geofenceRadius,
@@ -377,9 +377,7 @@ fun GeofenceEditScreen(
                                     valueRange = 50f..1000f,
                                     steps = 19
                                 )
-                                
                                 Spacer(modifier = Modifier.height(dimensions.paddingMediumDp))
-                                
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
@@ -395,9 +393,69 @@ fun GeofenceEditScreen(
                         }
                     }
                 }
-
+                // 2. Card Dias da Semana
                 item {
-                    // Seção de Família
+                    // Seção de Dias da Semana (colapsável)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(dimensions.paddingMediumDp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Dias da Semana",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                IconButton(onClick = { showDaysSection = !showDaysSection }) {
+                                    Icon(
+                                        if (showDaysSection) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = if (showDaysSection) "Recolher" else "Expandir"
+                                    )
+                                }
+                            }
+                            if (showDaysSection) {
+                                Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
+                                val diasSemana = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+                                val linhas = diasSemana.chunked(3)
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    linhas.forEach { linha ->
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            linha.forEach { dia ->
+                                                val selecionado = selectedActiveDays.contains(dia)
+                                                FilterChip(
+                                                    selected = selecionado,
+                                                    onClick = {
+                                                        selectedActiveDays = if (selecionado) selectedActiveDays - dia else selectedActiveDays + dia
+                                                    },
+                                                    label = {
+                                                        Text(
+                                                            dia,
+                                                            color = if (selecionado) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                                            fontSize = MaterialTheme.typography.bodySmall.fontSize
+                                                        )
+                                                    },
+                                                    modifier = Modifier.padding(vertical = 1.dp, horizontal = 2.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // 3. Card Usuário da Família
+                item {
+                    // Seção de Família (colapsável)
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
@@ -421,10 +479,8 @@ fun GeofenceEditScreen(
                                     )
                                 }
                             }
-                            
                             if (showFamilySection) {
                                 Spacer(modifier = Modifier.height(dimensions.paddingSmallDp))
-                                
                                 // Opção "Nenhum" para não atribuir a nenhum membro
                                 Row(
                                     modifier = Modifier
@@ -438,10 +494,9 @@ fun GeofenceEditScreen(
                                     )
                                     Column {
                                         Text("Nenhum (apenas responsável)", style = MaterialTheme.typography.bodyMedium)
-                                        Text("A área segura ficará visível apenas para você", style = MaterialTheme.typography.bodySmall)
+                                        Text("A área ficará visível apenas para você", style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
-                                
                                 if (familyMembers.isNotEmpty()) {
                                     LazyColumn(
                                         modifier = Modifier.height(150.dp)

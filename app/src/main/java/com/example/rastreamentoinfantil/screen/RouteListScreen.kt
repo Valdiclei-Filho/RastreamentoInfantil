@@ -11,6 +11,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
@@ -126,6 +129,7 @@ fun RoutesListScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RouteItem(
     route: Route,
@@ -135,29 +139,124 @@ fun RouteItem(
 ) {
     val dimensions = rememberResponsiveDimensions()
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = dimensions.paddingSmallDp),
         elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(dimensions.paddingMediumDp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(dimensions.paddingMediumDp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(route.name, style = MaterialTheme.typography.titleMedium)
-                // Você pode adicionar mais detalhes aqui, como origem/destino resumidos
-                Text("Origem: ${route.origin?.address ?: "Não definido"}", style = MaterialTheme.typography.bodySmall)
-                Text("Destino: ${route.destination?.address ?: "Não definido"}", style = MaterialTheme.typography.bodySmall)
-                Text("Pontos: ${route.waypoints?.size}", style = MaterialTheme.typography.bodySmall)
-                Text(if(route.isActive) "Ativa" else "Inativa", style = MaterialTheme.typography.bodySmall)
-                if (route.activeDays.isNotEmpty()) {
-                    Text("Dias: ${route.activeDays.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+            // Nome da rota
+            Text(
+                route.name,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Divider()
+            Spacer(modifier = Modifier.height(8.dp))
+            // Status
+            Text(
+                "Status:",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+            Text(
+                if (route.isActive) "Ativa" else "Inativa",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    color = if (route.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            // Dias ativos
+            Text(
+                "Dias de uso:",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+            if (route.activeDays.isNotEmpty()) {
+                val diasSemana = listOf(
+                    "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"
+                )
+                val diasOrdenados = diasSemana.filter { route.activeDays.contains(it) }
+                val linhas = diasOrdenados.chunked(4)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    linhas.forEach { linha ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            linha.forEach { dia ->
+                                Surface(
+                                    shape = MaterialTheme.shapes.small,
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Text(
+                                        text = dia,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                }
+            } else {
+                Text("Não definido", style = MaterialTheme.typography.bodyMedium)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Divider()
+            Spacer(modifier = Modifier.height(8.dp))
+            // Origem
+            Text(
+                "Origem:",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+            Text(
+                route.origin?.address ?: "Não definido",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            // Destino
+            Text(
+                "Destino:",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+            Text(
+                route.destination?.address ?: "Não definido",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            // Pontos intermediários
+            Text(
+                "Pontos Intermediários:",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+            if (route.waypoints.isNullOrEmpty()) {
+                Text("Não existe pontos intermediários", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Column {
+                    route.waypoints.forEachIndexed { idx, ponto ->
+                        Text(
+                            "${idx + 1}. ${ponto.address ?: "(sem endereço)"}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            Divider()
+            Spacer(modifier = Modifier.height(8.dp))
+            // Botões de ação
             if (isResponsible) {
-                Row {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
                     IconButton(onClick = onEdit) {
                         Icon(Icons.Filled.Edit, contentDescription = "Editar Rota")
                     }

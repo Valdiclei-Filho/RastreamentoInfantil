@@ -17,6 +17,9 @@ import androidx.navigation.NavController
 import com.example.rastreamentoinfantil.model.Geofence
 import com.example.rastreamentoinfantil.viewmodel.MainViewModel
 import com.example.rastreamentoinfantil.ui.theme.rememberResponsiveDimensions
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,7 +32,7 @@ fun GeofenceListScreen(
         mainViewModel.syncCurrentUser()
     }
 
-    val geofences by mainViewModel.geofences.collectAsStateWithLifecycle()
+    val geofencesFiltradas = mainViewModel.getActiveGeofencesForUser()
     val isLoading by mainViewModel.isLoadingGeofences.collectAsStateWithLifecycle()
     val geofenceOpStatus by mainViewModel.geofenceOperationStatus.collectAsStateWithLifecycle()
     val isResponsible by mainViewModel.isResponsible.collectAsStateWithLifecycle()
@@ -77,7 +80,7 @@ fun GeofenceListScreen(
             .fillMaxSize()) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (geofences.isEmpty()) {
+            } else if (geofencesFiltradas.isEmpty()) {
                 Column(
                     modifier = Modifier.align(Alignment.Center).padding(dimensions.paddingMediumDp),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -100,10 +103,11 @@ fun GeofenceListScreen(
                     contentPadding = PaddingValues(dimensions.paddingMediumDp),
                     verticalArrangement = Arrangement.spacedBy(dimensions.paddingSmallDp)
                 ) {
-                    items(geofences, key = { it.id!! }) { geofence ->
+                    items(geofencesFiltradas, key = { it.id!! }) { geofence ->
                         GeofenceItem(
                             geofence = geofence,
                             isResponsible = isResponsible,
+                            diaAtual = "Segunda", // Placeholder, as filtering is removed
                             onEdit = {
                                 if (isResponsible) {
                                     navController.navigate("geofenceEdit/${geofence.id!!}")
@@ -126,30 +130,108 @@ fun GeofenceListScreen(
 fun GeofenceItem(
     geofence: Geofence,
     isResponsible: Boolean,
+    diaAtual: String,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     val dimensions = rememberResponsiveDimensions()
+    val diasSemana = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+    val diasOrdenados = diasSemana.filter { geofence.activeDays.contains(it) }
+    val isAtivaHoje = geofence.activeDays.contains(diaAtual) && geofence.isActive
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = dimensions.paddingSmallDp),
         elevation = CardDefaults.cardElevation(defaultElevation = dimensions.cardElevationDp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(dimensions.paddingMediumDp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(dimensions.paddingMediumDp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(geofence.name, style = MaterialTheme.typography.titleMedium)
-                Text("Raio: ${geofence.radius}m", style = MaterialTheme.typography.bodySmall)
-                Text("Lat: ${String.format("%.4f", geofence.coordinates.latitude)}", style = MaterialTheme.typography.bodySmall)
-                Text("Lng: ${String.format("%.4f", geofence.coordinates.longitude)}", style = MaterialTheme.typography.bodySmall)
-                Text(if(geofence.isActive) "Ativa" else "Inativa", style = MaterialTheme.typography.bodySmall)
+            // Nome da geofence
+            Text(
+                geofence.name,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                color = if (isAtivaHoje) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Divider()
+            Spacer(modifier = Modifier.height(8.dp))
+            // Status
+            Text(
+                "Status:",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            )
+            Text(
+                if (geofence.isActive) "Ativa" else "Inativa",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    color = if (geofence.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            // Dias ativos
+            Text(
+                "Dias de uso:",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            )
+            if (diasOrdenados.isNotEmpty()) {
+                val linhas = diasOrdenados.chunked(4)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    linhas.forEach { linha ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            linha.forEach { dia ->
+                                Surface(
+                                    shape = MaterialTheme.shapes.small,
+                                    color = if (dia == diaAtual && isAtivaHoje) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Text(
+                                        text = dia,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                }
+            } else {
+                Text("Não definido", style = MaterialTheme.typography.bodyMedium)
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            Divider()
+            Spacer(modifier = Modifier.height(8.dp))
+            // Raio
+            Text(
+                "Raio:",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            )
+            Text("${geofence.radius.toInt()} metros", style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            // Localização
+            Text(
+                "Localização:",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            )
+            Text(
+                "Lat: ${String.format("%.4f", geofence.coordinates.latitude)}\nLng: ${String.format("%.4f", geofence.coordinates.longitude)}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Divider()
+            Spacer(modifier = Modifier.height(8.dp))
+            // Botões de ação
             if (isResponsible) {
-                Row {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
                     IconButton(onClick = onEdit) {
                         Icon(Icons.Filled.Edit, contentDescription = "Editar Área Segura")
                     }
