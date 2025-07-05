@@ -112,12 +112,18 @@ class MainViewModel(
 
     // Removido: private var currentGeofence: Geofence? = null
             // REMOVIDO: Comentário sobre _geofenceArea - agora o sistema usa múltiplas geofences
-    private var currentUserId: String? = null
+    private var _currentUserId: String? = null
+    val currentUserId: String? get() = _currentUserId
     private var isLocationMonitoringActive: Boolean = false // Flag para controlar se o monitoramento está ativo
 
     private var lastKnownRouteStatus: Boolean? = null
     private val _isLocationOnRoute = MutableStateFlow<Boolean?>(null)
     val isLocationOnRoute: StateFlow<Boolean?> = _isLocationOnRoute.asStateFlow()
+    
+    // Controle para forçar recálculo de geofences quando o dia muda
+    private var lastKnownDayOfWeek: String? = null
+    private val _forceGeofenceRecalculation = MutableStateFlow<Boolean>(false)
+    val forceGeofenceRecalculation: StateFlow<Boolean> = _forceGeofenceRecalculation.asStateFlow()
 
     private val _showRouteExitNotificationEvent = MutableSharedFlow<String>()
     val showRouteExitNotificationEvent = _showRouteExitNotificationEvent.asSharedFlow()
@@ -209,6 +215,13 @@ class MainViewModel(
         
         // Não inicia monitoramento automaticamente no init
         // Será iniciado explicitamente pela MainActivity quando necessário
+        
+        // Inicializar o dia da semana atual
+        val diasSemana = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+        val cal = java.util.Calendar.getInstance()
+        val idx = (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+        lastKnownDayOfWeek = diasSemana[idx]
+        Log.d(TAG1, "[init] Dia da semana inicial: $lastKnownDayOfWeek")
     }
 
     /**
@@ -217,8 +230,8 @@ class MainViewModel(
     fun initializeUser() {
         val currentUser = firebaseRepository.getCurrentUser()
         if (currentUser != null) {
-            currentUserId = currentUser.uid
-            Log.d(TAG1, "Usuário inicializado: $currentUserId")
+            _currentUserId = currentUser.uid
+            Log.d(TAG1, "Usuário inicializado: $_currentUserId")
 
             // Obter e salvar token FCM
             retrieveAndSaveFcmToken(currentUser.uid)
@@ -238,6 +251,9 @@ class MainViewModel(
             }
             
             loadUserIdAndGeofence()
+            
+            // Iniciar verificação periódica de mudança de dia da semana
+            startDayOfWeekMonitoring()
         }
     }
 
@@ -371,7 +387,7 @@ class MainViewModel(
         _isLoading.value = true
         val currentUser = firebaseRepository.getCurrentUser()
         if (currentUser != null) {
-            currentUserId = currentUser.uid
+            _currentUserId = currentUser.uid
             // Carregar geofences do usuário
             loadUserGeofences()
         } else {
@@ -799,7 +815,7 @@ class MainViewModel(
         _locationRecords.value = emptyList()
         
         // Limpar dados de usuário e família
-        currentUserId = null
+        _currentUserId = null
         _currentUser.value = null
         _familyMembers.value = emptyList()
         _isResponsible.value = false
@@ -814,7 +830,7 @@ class MainViewModel(
     fun resetAuthenticationState() {
         clearAllData()
         // Resetar o estado de autenticação
-        currentUserId = null
+        _currentUserId = null
         Log.d(TAG, "Estado de autenticação resetado")
     }
 
@@ -826,7 +842,7 @@ class MainViewModel(
         Log.d(TAG1, "[syncCurrentUser] Iniciando sincronização do usuário")
         val firebaseUser = FirebaseAuth.getInstance().currentUser
         if (firebaseUser != null) {
-            currentUserId = firebaseUser.uid
+            _currentUserId = firebaseUser.uid
             Log.d(TAG1, "[syncCurrentUser] Usuário sincronizado: ${firebaseUser.uid}, email: ${firebaseUser.email}")
             // Carregar dados do usuário e família após sincronizar
             loadCurrentUserData()
@@ -835,7 +851,7 @@ class MainViewModel(
             // Iniciar monitoramento de localização
             startLocationMonitoring()
         } else {
-            currentUserId = null
+            _currentUserId = null
             // Parar monitoramento se não há usuário logado
             stopLocationMonitoring()
             Log.w(TAG1, "[syncCurrentUser] Nenhum usuário logado!")
@@ -942,9 +958,27 @@ class MainViewModel(
         val idx = (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
         val diaAtual = diasSemana[idx]
         Log.d(TAG1, "[getActiveRoutesForToday] diaAtual=$diaAtual")
+        Log.d(TAG1, "[getActiveRoutesForToday] isResponsible: ${_isResponsible.value}")
+        
         val activeRoutes = routes.value.filter { route ->
             Log.d(TAG1, "[getActiveRoutesForToday] Route ${route.name}: activeDays=${route.activeDays}")
-            route.isActive && route.activeDays.contains(diaAtual)
+            
+            val isActive = route.isActive
+            
+            // Para responsáveis: mostrar todas as rotas ativas (independente do dia)
+            // Para membros: mostrar apenas rotas ativas para o dia atual
+            val isDayMatch = if (_isResponsible.value) {
+                Log.d(TAG1, "[getActiveRoutesForToday] Responsável: ignorando filtro de dia da semana")
+                true // Responsáveis veem todas as rotas independente do dia
+            } else {
+                val dayMatch = route.activeDays.contains(diaAtual)
+                Log.d(TAG1, "[getActiveRoutesForToday] Membro: verificando se $diaAtual está em ${route.activeDays} = $dayMatch")
+                dayMatch // Membros veem apenas rotas do dia atual
+            }
+            
+            val result = isActive && isDayMatch
+            Log.d(TAG1, "[getActiveRoutesForToday] Route ${route.name}: isActive=$isActive, diaAtual=$diaAtual, activeDays=${route.activeDays}, result=$result")
+            result
         }
         Log.d(TAG1, "[getActiveRoutesForToday] Rotas ativas para hoje: ${activeRoutes.size}")
         return activeRoutes
@@ -1130,6 +1164,13 @@ class MainViewModel(
     fun clearGeofenceOperationStatus() {
         _geofenceOperationStatus.value = GeofenceOperationStatus.Idle
     }
+    
+    /**
+     * Limpa o flag de recálculo forçado de geofences
+     */
+    fun clearForceGeofenceRecalculation() {
+        _forceGeofenceRecalculation.value = false
+    }
 
     /**
      * Verifica se o usuário atual pode gerenciar geofences (apenas responsáveis)
@@ -1152,26 +1193,58 @@ class MainViewModel(
         val idx = (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7 // Segunda=0, Terça=1, ..., Domingo=6
         val diaAtual = diasSemana[idx]
         Log.d(TAG1, "[getActiveGeofencesForUser] diaAtual=$diaAtual")
+        
+        // Verificar se o dia da semana mudou
+        if (lastKnownDayOfWeek != null && lastKnownDayOfWeek != diaAtual) {
+            Log.d(TAG1, "[getActiveGeofencesForUser] 🔄 Dia da semana mudou: $lastKnownDayOfWeek -> $diaAtual")
+            _forceGeofenceRecalculation.value = true
+        }
+        lastKnownDayOfWeek = diaAtual
         val activeGeofences = geofences.value.filter { geofence ->
             Log.d(TAG1, "[getActiveGeofencesForUser] Geofence ${geofence.name}: activeDays=${geofence.activeDays}")
-            val isActive = geofence.isActive &&
-            (
-                // Responsáveis veem todas as geofences que criaram
-                (isResponsible.value && geofence.createdByUserId == currentUserId)
-                ||
-                // Membros veem apenas geofences onde são o targetUserId
-                (!isResponsible.value && geofence.targetUserId == currentUserId)
-            )
-            // Para dependente, só mostrar se o dia atual está em activeDays
-            && (isResponsible.value || geofence.activeDays.contains(diaAtual))
-            Log.d(TAG1, "[getActiveGeofencesForUser] Geofence ${geofence.name}: isActive=${geofence.isActive}, createdByUserId=${geofence.createdByUserId}, targetUserId=${geofence.targetUserId}, result=$isActive")
-            isActive
+            
+            val isActive = geofence.isActive
+            val isResponsibleMatch = isResponsible.value && geofence.createdByUserId == currentUserId
+            val isMemberMatch = !isResponsible.value && geofence.targetUserId == currentUserId
+            
+            // Para responsáveis: mostrar todas as geofences ativas que eles criaram (independente do dia)
+            // Para membros: mostrar apenas geofences ativas para o dia atual
+            val isDayMatch = if (isResponsible.value) {
+                Log.d(TAG1, "[getActiveGeofencesForUser] Responsável: ignorando filtro de dia da semana")
+                true // Responsáveis veem todas as geofences independente do dia
+            } else {
+                val dayMatch = geofence.activeDays.contains(diaAtual)
+                Log.d(TAG1, "[getActiveGeofencesForUser] Membro: verificando se $diaAtual está em ${geofence.activeDays} = $dayMatch")
+                dayMatch // Membros veem apenas geofences do dia atual
+            }
+            
+            val result = isActive && (isResponsibleMatch || isMemberMatch) && isDayMatch
+            
+            Log.d(TAG1, "[getActiveGeofencesForUser] Geofence ${geofence.name}: isActive=$isActive, createdByUserId=${geofence.createdByUserId}, targetUserId=${geofence.targetUserId}, diaAtual=$diaAtual, activeDays=${geofence.activeDays}, result=$result")
+            result
         }
         
         Log.d(TAG1, "[getActiveGeofencesForUser] Geofences ativas para o usuário: ${activeGeofences.size}")
         activeGeofences.forEach { geofence ->
             Log.d(TAG1, "[getActiveGeofencesForUser] ✅ Geofence ativa: ${geofence.name} (ID: ${geofence.id})")
         }
+        
+        // Log das geofences que foram filtradas
+        val filteredOutGeofences = geofences.value.filter { geofence ->
+            !activeGeofences.contains(geofence)
+        }
+        if (filteredOutGeofences.isNotEmpty()) {
+            Log.d(TAG1, "[getActiveGeofencesForUser] ❌ Geofences filtradas (não ativas):")
+            filteredOutGeofences.forEach { geofence ->
+                val isActive = geofence.isActive
+                val isResponsibleMatch = isResponsible.value && geofence.createdByUserId == currentUserId
+                val isMemberMatch = !isResponsible.value && geofence.targetUserId == currentUserId
+                val isDayMatch = geofence.activeDays.contains(diaAtual)
+                
+                Log.d(TAG1, "[getActiveGeofencesForUser]   - ${geofence.name}: isActive=$isActive, isResponsibleMatch=$isResponsibleMatch, isMemberMatch=$isMemberMatch, isDayMatch=$isDayMatch, activeDays=${geofence.activeDays}")
+            }
+        }
+        
         Log.d(TAG1, "[getActiveGeofencesForUser] === FIM DO FILTRO ===")
         return activeGeofences
     }
@@ -1953,6 +2026,37 @@ class MainViewModel(
             Log.w(TAG1, "[forceGeofenceStatusCheck] Nenhuma localização atual disponível")
         }
     }
+    
+    /**
+     * Força recálculo das geofences ativas (útil para mudanças de dia da semana)
+     */
+    fun forceActiveGeofencesRecalculation() {
+        Log.d(TAG1, "[forceActiveGeofencesRecalculation] Forçando recálculo das geofences ativas")
+        _forceGeofenceRecalculation.value = true
+    }
+    
+    /**
+     * Inicia monitoramento de mudanças de dia da semana
+     */
+    private fun startDayOfWeekMonitoring() {
+        viewModelScope.launch {
+            while (currentUserId != null) {
+                val diasSemana = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+                val cal = java.util.Calendar.getInstance()
+                val idx = (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+                val currentDay = diasSemana[idx]
+                
+                if (lastKnownDayOfWeek != null && lastKnownDayOfWeek != currentDay) {
+                    Log.d(TAG1, "[startDayOfWeekMonitoring] 🔄 Dia da semana mudou: $lastKnownDayOfWeek -> $currentDay")
+                    _forceGeofenceRecalculation.value = true
+                    lastKnownDayOfWeek = currentDay
+                }
+                
+                // Verificar a cada hora
+                kotlinx.coroutines.delay(3600000) // 1 hora em millisegundos
+            }
+        }
+    }
 
     /**
      * Função para forçar verificação de status após atualização de rota
@@ -2036,6 +2140,99 @@ class MainViewModel(
                 kotlinx.coroutines.delay(30000) // 30 segundos
             }
         }
+    }
+    
+    /**
+     * Função de teste para verificar a filtragem de geofences
+     */
+    fun testGeofenceFiltering() {
+        Log.d(TAG1, "[testGeofenceFiltering] === TESTE DE FILTRAGEM DE GEOFENCES ===")
+        Log.d(TAG1, "[testGeofenceFiltering] currentUserId: $currentUserId")
+        Log.d(TAG1, "[testGeofenceFiltering] isResponsible: ${isResponsible.value}")
+        
+        val diasSemana = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+        val cal = java.util.Calendar.getInstance()
+        val idx = (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+        val diaAtual = diasSemana[idx]
+        Log.d(TAG1, "[testGeofenceFiltering] diaAtual: $diaAtual")
+        
+        Log.d(TAG1, "[testGeofenceFiltering] Total de geofences carregadas: ${geofences.value.size}")
+        geofences.value.forEach { geofence ->
+            val isActive = geofence.isActive
+            val isResponsibleMatch = isResponsible.value && geofence.createdByUserId == currentUserId
+            val isMemberMatch = !isResponsible.value && geofence.targetUserId == currentUserId
+            val isDayMatch = geofence.activeDays.contains(diaAtual)
+            val finalResult = isActive && (isResponsibleMatch || isMemberMatch) && isDayMatch
+            
+            Log.d(TAG1, "[testGeofenceFiltering] Geofence: ${geofence.name}")
+            Log.d(TAG1, "[testGeofenceFiltering]   - isActive: $isActive")
+            Log.d(TAG1, "[testGeofenceFiltering]   - createdByUserId: ${geofence.createdByUserId}")
+            Log.d(TAG1, "[testGeofenceFiltering]   - targetUserId: ${geofence.targetUserId}")
+            Log.d(TAG1, "[testGeofenceFiltering]   - activeDays: ${geofence.activeDays}")
+            Log.d(TAG1, "[testGeofenceFiltering]   - isResponsibleMatch: $isResponsibleMatch")
+            Log.d(TAG1, "[testGeofenceFiltering]   - isMemberMatch: $isMemberMatch")
+            Log.d(TAG1, "[testGeofenceFiltering]   - isDayMatch: $isDayMatch")
+            Log.d(TAG1, "[testGeofenceFiltering]   - RESULTADO FINAL: $finalResult")
+        }
+        
+        val activeGeofences = getActiveGeofencesForUser()
+        Log.d(TAG1, "[testGeofenceFiltering] Geofences ativas após filtro: ${activeGeofences.size}")
+        Log.d(TAG1, "[testGeofenceFiltering] === FIM DO TESTE ===")
+    }
+
+    /**
+     * Corrige geofences com problemas (ativa geofences inativas e adiciona dias ativos)
+     */
+    fun fixGeofences() {
+        Log.d(TAG1, "[fixGeofences] === CORREÇÃO DE GEOFENCES ===")
+        currentUserId?.let { userId ->
+            val geofences = _geofences.value
+            var fixedCount = 0
+            var totalToFix = geofences.count { !it.isActive || it.activeDays.isEmpty() }
+            
+            if (totalToFix == 0) {
+                Log.d(TAG1, "[fixGeofences] Nenhuma geofence precisa de correção")
+                return
+            }
+            
+            geofences.forEach { geofence ->
+                var needsUpdate = false
+                val updatedGeofence = geofence.copy()
+                
+                // Corrigir geofence inativa
+                if (!geofence.isActive) {
+                    Log.d(TAG1, "[fixGeofences] Ativando geofence inativa: ${geofence.name}")
+                    updatedGeofence.isActive = true
+                    needsUpdate = true
+                }
+                
+                // Corrigir lista de dias ativos vazia
+                if (geofence.activeDays.isEmpty()) {
+                    Log.d(TAG1, "[fixGeofences] Adicionando dias ativos para geofence: ${geofence.name}")
+                    updatedGeofence.activeDays = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+                    needsUpdate = true
+                }
+                
+                // Salvar geofence corrigida
+                if (needsUpdate) {
+                    firebaseRepository.saveGeofence(userId, updatedGeofence) { geofenceId, exception ->
+                        if (exception != null) {
+                            Log.e(TAG1, "[fixGeofences] Erro ao corrigir geofence ${geofence.name}", exception)
+                        } else {
+                            Log.d(TAG1, "[fixGeofences] ✅ Geofence corrigida: ${geofence.name}")
+                            fixedCount++
+                            
+                            // Recarregar geofences após todas as correções
+                            if (fixedCount == totalToFix) {
+                                Log.d(TAG1, "[fixGeofences] Recarregando geofences após correções")
+                                loadUserGeofences()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Log.d(TAG1, "[fixGeofences] === FIM DA CORREÇÃO ===")
     }
 
 }

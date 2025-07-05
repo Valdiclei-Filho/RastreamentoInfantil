@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material3.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -79,8 +80,16 @@ fun MapScreen(
 
     // Observar geofences ativas
     val geofences by mainViewModel.geofences.collectAsStateWithLifecycle()
-    val activeGeofences = remember(geofences) {
+    val forceRecalculation by mainViewModel.forceGeofenceRecalculation.collectAsStateWithLifecycle()
+    val activeGeofences = remember(geofences, isResponsible, forceRecalculation) {
         mainViewModel.getActiveGeofencesForUser()
+    }
+    
+    // Limpar flag de recálculo forçado após usar
+    LaunchedEffect(forceRecalculation) {
+        if (forceRecalculation) {
+            mainViewModel.clearForceGeofenceRecalculation()
+        }
     }
     
     // Observar status de cada geofence
@@ -153,7 +162,15 @@ fun MapScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mapa") }
+                title = { Text("Mapa") },
+                actions = {
+                    // Botão de teste temporário para debug
+                    IconButton(
+                        onClick = { mainViewModel.testGeofenceFiltering() }
+                    ) {
+                        Icon(Icons.Default.BugReport, contentDescription = "Testar Filtragem")
+                    }
+                }
             )
         },
         bottomBar = {

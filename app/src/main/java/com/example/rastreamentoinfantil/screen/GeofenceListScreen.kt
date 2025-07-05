@@ -1,5 +1,6 @@
 package com.example.rastreamentoinfantil.screen
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -7,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,14 +30,36 @@ fun GeofenceListScreen(
     mainViewModel: MainViewModel
 ) {
     val dimensions = rememberResponsiveDimensions()
-    LaunchedEffect(Unit) {
-        mainViewModel.syncCurrentUser()
-    }
-
-    val geofencesFiltradas = mainViewModel.getActiveGeofencesForUser()
+    val geofences by mainViewModel.geofences.collectAsStateWithLifecycle()
     val isLoading by mainViewModel.isLoadingGeofences.collectAsStateWithLifecycle()
     val geofenceOpStatus by mainViewModel.geofenceOperationStatus.collectAsStateWithLifecycle()
     val isResponsible by mainViewModel.isResponsible.collectAsStateWithLifecycle()
+    val forceRecalculation by mainViewModel.forceGeofenceRecalculation.collectAsStateWithLifecycle()
+    
+    LaunchedEffect(Unit) {
+        mainViewModel.syncCurrentUser()
+        mainViewModel.loadUserGeofences()
+    }
+    
+    // Recarregar geofences quando o usuário for sincronizado
+    LaunchedEffect(isResponsible) {
+        if (isResponsible != null) {
+            Log.d("GeofenceListScreen", "Usuário sincronizado, recarregando geofences")
+            mainViewModel.loadUserGeofences()
+        }
+    }
+    
+    // Calcular geofences filtradas com remember para recálculo automático
+    val geofencesFiltradas = remember(geofences, isResponsible, forceRecalculation) {
+        mainViewModel.getActiveGeofencesForUser()
+    }
+    
+    // Limpar flag de recálculo forçado após usar
+    LaunchedEffect(forceRecalculation) {
+        if (forceRecalculation) {
+            mainViewModel.clearForceGeofenceRecalculation()
+        }
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -63,7 +87,12 @@ fun GeofenceListScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(title = { Text("Minhas Áreas Seguras") })
+            TopAppBar(
+                title = { Text("Minhas Áreas Seguras") },
+                actions = {
+
+                }
+            )
         },
         floatingActionButton = {
             if (isResponsible) {
@@ -80,7 +109,7 @@ fun GeofenceListScreen(
             .fillMaxSize()) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (geofencesFiltradas.isEmpty()) {
+            } else         if (geofencesFiltradas.isEmpty()) {
                 Column(
                     modifier = Modifier.align(Alignment.Center).padding(dimensions.paddingMediumDp),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -107,7 +136,7 @@ fun GeofenceListScreen(
                         GeofenceItem(
                             geofence = geofence,
                             isResponsible = isResponsible,
-                            diaAtual = "Segunda", // Placeholder, as filtering is removed
+                            diaAtual = getCurrentDayOfWeek(),
                             onEdit = {
                                 if (isResponsible) {
                                     navController.navigate("geofenceEdit/${geofence.id!!}")
@@ -242,4 +271,12 @@ fun GeofenceItem(
             }
         }
     }
-} 
+}
+
+// Função auxiliar para obter o dia atual da semana
+private fun getCurrentDayOfWeek(): String {
+    val diasSemana = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")
+    val cal = java.util.Calendar.getInstance()
+    val idx = (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7 // Segunda=0, Terça=1, ..., Domingo=6
+    return diasSemana[idx]
+}

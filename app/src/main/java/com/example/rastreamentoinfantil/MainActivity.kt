@@ -4,12 +4,13 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,14 +36,17 @@ import com.example.rastreamentoinfantil.helper.NotificationHelper
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.example.rastreamentoinfantil.helper.RouteHelper
+import com.example.rastreamentoinfantil.helper.LocationPermissionHelper
+import com.example.rastreamentoinfantil.service.BackgroundLocationService
 import kotlinx.coroutines.Dispatchers
 
 const val GEOFENCE_CHANNEL_ID = "geofence_channel_id"
 const val ROUTE_CHANNEL_ID = "route_channel_id"
 
-class MainActivity : ComponentActivity(){
+class MainActivity : FragmentActivity(){
 
     private lateinit var mainViewModel: MainViewModel
+    private lateinit var locationPermissionHelper: LocationPermissionHelper
 
     private val locationPermissions = arrayOf(
         Manifest.permission.ACCESS_FINE_LOCATION,
@@ -97,6 +101,10 @@ class MainActivity : ComponentActivity(){
         val factory = MainViewModelFactory(application, firebaseRepository, locationService, geocodingService, geofenceHelper, routeHelper)
 
         mainViewModel = ViewModelProvider(this, factory).get(MainViewModel::class.java)
+        
+        // Inicializa o helper de permissões
+        locationPermissionHelper = LocationPermissionHelper(this)
+        setupLocationPermissionCallbacks()
 
         // Solicita permissões ANTES de liberar a navegação/login
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -184,8 +192,57 @@ class MainActivity : ComponentActivity(){
         }
     }
 
+    private fun setupLocationPermissionCallbacks() {
+        locationPermissionHelper.onLocationPermissionGranted = {
+            Log.d("MainActivity", "Permissão de localização concedida")
+            // Solicitar permissão de localização em segundo plano
+            locationPermissionHelper.requestBackgroundLocationPermission()
+        }
+        
+        locationPermissionHelper.onLocationPermissionDenied = {
+            Log.w("MainActivity", "Permissão de localização negada")
+            Toast.makeText(this, "Permissão de localização é necessária para o funcionamento do app", Toast.LENGTH_LONG).show()
+        }
+        
+        locationPermissionHelper.onBackgroundLocationPermissionGranted = {
+            Log.d("MainActivity", "Permissão de localização em segundo plano concedida")
+            startBackgroundLocationService()
+        }
+        
+        locationPermissionHelper.onBackgroundLocationPermissionDenied = {
+            Log.w("MainActivity", "Permissão de localização em segundo plano negada")
+            Toast.makeText(this, "Permissão de localização em segundo plano é recomendada para monitoramento contínuo", Toast.LENGTH_LONG).show()
+            // Mesmo sem permissão em segundo plano, iniciar o serviço normal
+            startBackgroundLocationService()
+        }
+    }
+    
+    private fun startBackgroundLocationService() {
+        Log.d("MainActivity", "startBackgroundLocationService: Iniciando serviço de localização em segundo plano")
+        
+        val serviceIntent = Intent(this, BackgroundLocationService::class.java).apply {
+            action = BackgroundLocationService.ACTION_START
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+    }
+    
+    private fun stopBackgroundLocationService() {
+        Log.d("MainActivity", "stopBackgroundLocationService: Parando serviço de localização em segundo plano")
+        
+        val serviceIntent = Intent(this, BackgroundLocationService::class.java).apply {
+            action = BackgroundLocationService.ACTION_STOP
+        }
+        
+        startService(serviceIntent)
+    }
+
     private fun requestLocationPermissions() {
-        requestLocationPermissionsLauncher.launch(locationPermissions)
+        locationPermissionHelper.requestLocationPermission()
     }
 
     override fun onResume() {
@@ -195,6 +252,22 @@ class MainActivity : ComponentActivity(){
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
             }
         }
+        
+        // Verificar se o serviço está rodando e reiniciar se necessário
+        if (LocationPermissionHelper.hasLocationPermission(this)) {
+            startBackgroundLocationService()
+        }
+    }
+    
+    override fun onPause() {
+        super.onPause()
+        // Não parar o serviço aqui, deixar rodando em segundo plano
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        // Parar o serviço apenas se o app for completamente fechado
+        // stopBackgroundLocationService()
     }
 
     private val requestPermissionLauncher =
